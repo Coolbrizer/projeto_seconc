@@ -10,15 +10,25 @@ Aplicação web para controle de pagamentos mensais por UF, com gráficos dinâm
 
 ## Configuração
 
-1. Copie as variáveis de ambiente:
+### Supabase
+
+1. No [painel do Supabase](https://supabase.com/dashboard), abra o projeto → **Settings** → **API**.
+
+2. Copie:
+   - **Project URL** (ex.: `https://rjskuzsghzhwxoujobwo.supabase.co`) → use em `NEXT_PUBLIC_SUPABASE_URL`.
+   - **anon public** (JWT longo) → use em `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+
+3. Crie o arquivo local (não versionado):
 
 ```bash
 cp .env.example .env.local
 ```
 
-2. Preencha `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+4. Cole URL e chave **anon** em `.env.local`. Este app usa apenas essas duas variáveis com o cliente `@supabase/supabase-js`.
 
-3. Garanta que as tabelas abaixo existam no Supabase com os nomes/colunas exatos:
+**Importante:** não coloque a chave **secret** nem **service_role** em variáveis `NEXT_PUBLIC_*` (elas não devem ir para o bundle do navegador). As chaves no formato `sb_publishable_` / `sb_secret_` são alternativas mais recentes; o código atual segue o par **URL + anon JWT** acima.
+
+5. Garanta que as tabelas abaixo existam no Supabase com os nomes/colunas exatos:
    - `pgto_coord_2025`
    - `pgto_coord_2026`
    - `pgto_uf_2025`
@@ -57,4 +67,4 @@ As tabelas de pagamento são lidas no formato "colunas por mês" (ex.: `mar./25`
 
 1. Envie o código para um repositório no GitHub.
 2. Importe o repositório na [Vercel](https://vercel.com/).
-3. Configure as variáveis de ambiente do Supabase no painel da Vercel.
+3. No painel da Vercel (**Settings** → **Environment Variables**), adicione as mesmas duas variáveis do `.env.local`: `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY` (valores iguais aos do Supabase, não commite o arquivo `.env.local` no Git).

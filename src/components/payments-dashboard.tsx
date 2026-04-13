@@ -16,11 +16,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { PaymentRecord } from "@/types/payment";
+import type { DashboardDataNotice, PaymentRecord } from "@/types/payment";
 
 type PaymentsDashboardProps = {
   payments: PaymentRecord[];
   enrolledByUf: Record<string, number>;
+  dataNotice?: DashboardDataNotice;
 };
 
 const chartColors = ["#1e40af", "#2563eb", "#0d9488", "#f97316", "#6d28d9"];
@@ -92,7 +93,16 @@ function calendarMonthsForFilter(selectedYear: "both" | "2025" | "2026"): string
   return months;
 }
 
-export function PaymentsDashboard({ payments, enrolledByUf }: PaymentsDashboardProps) {
+const dataNoticeText: Record<DashboardDataNotice, string> = {
+  missing_supabase:
+    "Não há conexão com o Supabase (variáveis NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY ausentes ou inválidas). O gráfico de valores usa apenas os lançamentos das tabelas pgto_* — configure o ambiente para ver os totais reais.",
+  supabase_fetch_error:
+    "Falha ao ler as tabelas de pagamento no Supabase. Verifique nomes das tabelas, políticas RLS e a chave anon. Nenhum valor de demonstração é exibido.",
+  enrolled_fetch_error:
+    "Pagamentos carregados; a tabela de quantidade de inscritos por UF (qtd_inscrit_uf) não pôde ser lida. O card de inscritos pode ficar zerado.",
+};
+
+export function PaymentsDashboard({ payments, enrolledByUf, dataNotice }: PaymentsDashboardProps) {
   const [selectedUfs, setSelectedUfs] = useState<string[]>([]);
   /** Vazio = todos os meses do período de ano selecionado. */
   const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
@@ -212,6 +222,16 @@ export function PaymentsDashboard({ payments, enrolledByUf }: PaymentsDashboardP
           Acompanhe os pagamentos mensais por UF com filtros e comparativos dinâmicos.
         </p>
       </header>
+
+      {dataNotice && (
+        <div
+          role="status"
+          className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 shadow-sm"
+        >
+          <p className="font-medium text-amber-900">Aviso de dados</p>
+          <p className="mt-1 leading-relaxed">{dataNoticeText[dataNotice]}</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-3 rounded-xl bg-white p-4 shadow-sm md:grid-cols-4">
         <article className="rounded-lg bg-slate-50 p-4">

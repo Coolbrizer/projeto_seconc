@@ -1,80 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import type { DashboardData, PaymentRecord } from "@/types/payment";
 
-const fallbackPayments: PaymentRecord[] = [
-  {
-    id: "1",
-    uf: "SP",
-    reference_month: "2026-01-01",
-    amount: 340000,
-    created_at: "2026-01-15T09:00:00Z",
-    source: "coord",
-  },
-  {
-    id: "2",
-    uf: "RJ",
-    reference_month: "2026-01-01",
-    amount: 240000,
-    created_at: "2026-01-15T09:00:00Z",
-    source: "coord",
-  },
-  {
-    id: "3",
-    uf: "MG",
-    reference_month: "2026-01-01",
-    amount: 210000,
-    created_at: "2026-01-15T09:00:00Z",
-    source: "coord",
-  },
-  {
-    id: "4",
-    uf: "SP",
-    reference_month: "2026-02-01",
-    amount: 360000,
-    created_at: "2026-02-15T09:00:00Z",
-    source: "uf",
-  },
-  {
-    id: "5",
-    uf: "RJ",
-    reference_month: "2026-02-01",
-    amount: 255000,
-    created_at: "2026-02-15T09:00:00Z",
-    source: "uf",
-  },
-  {
-    id: "6",
-    uf: "MG",
-    reference_month: "2026-02-01",
-    amount: 218000,
-    created_at: "2026-02-15T09:00:00Z",
-    source: "uf",
-  },
-  {
-    id: "7",
-    uf: "BA",
-    reference_month: "2026-03-01",
-    amount: 175000,
-    created_at: "2026-03-15T09:00:00Z",
-    source: "coord",
-  },
-  {
-    id: "8",
-    uf: "SP",
-    reference_month: "2026-03-01",
-    amount: 372000,
-    created_at: "2026-03-15T09:00:00Z",
-    source: "uf",
-  },
-];
-
-const fallbackEnrolledByUf: Record<string, number> = {
-  SP: 1200,
-  RJ: 980,
-  MG: 870,
-  BA: 640,
-};
-
 const monthMap: Record<string, string> = {
   jan: "01",
   fev: "02",
@@ -161,7 +87,11 @@ function normalizeTableRows(rows: Array<Record<string, unknown>>, source: "coord
 
 export async function getDashboardData(): Promise<DashboardData> {
   if (!supabase) {
-    return { payments: fallbackPayments, enrolledByUf: fallbackEnrolledByUf };
+    return {
+      payments: [],
+      enrolledByUf: {},
+      dataNotice: "missing_supabase",
+    };
   }
 
   const payments: PaymentRecord[] = [];
@@ -170,7 +100,11 @@ export async function getDashboardData(): Promise<DashboardData> {
     const { data, error } = await supabase.from(sourceTable.table).select("*");
     if (error) {
       console.error(`Erro ao buscar tabela ${sourceTable.table}:`, error.message);
-      return { payments: fallbackPayments, enrolledByUf: fallbackEnrolledByUf };
+      return {
+        payments: [],
+        enrolledByUf: {},
+        dataNotice: "supabase_fetch_error",
+      };
     }
 
     payments.push(...normalizeTableRows((data ?? []) as Array<Record<string, unknown>>, sourceTable.source));
@@ -183,8 +117,9 @@ export async function getDashboardData(): Promise<DashboardData> {
   if (enrolledError) {
     console.error("Erro ao buscar tabela qtd_inscrit_uf:", enrolledError.message);
     return {
-      payments: payments.length > 0 ? payments : fallbackPayments,
-      enrolledByUf: fallbackEnrolledByUf,
+      payments: payments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
+      enrolledByUf: {},
+      dataNotice: "enrolled_fetch_error",
     };
   }
 
@@ -197,6 +132,6 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   return {
     payments: payments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
-    enrolledByUf: Object.keys(enrolledByUf).length > 0 ? enrolledByUf : fallbackEnrolledByUf,
+    enrolledByUf,
   };
 }
