@@ -76,17 +76,17 @@ function monthLabel(value: string) {
   return date.toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
 }
 
-/** Meses do calendário (jan–dez) para os filtros, não só meses que já têm lançamento. */
-function calendarMonthsForFilter(selectedYear: "both" | "2025" | "2026"): string[] {
-  const years =
-    selectedYear === "both" ? [2025, 2026] : selectedYear === "2025" ? [2025] : [2026];
-  const months: string[] = [];
-  for (const y of years) {
-    for (let m = 1; m <= 12; m++) {
-      months.push(`${y}-${String(m).padStart(2, "0")}`);
-    }
+/** Duas linhas por ano: jan–jun e jul–dez (6 meses por linha). */
+function monthsGridForYear(year: number): [string[], string[]] {
+  const row1: string[] = [];
+  const row2: string[] = [];
+  for (let m = 1; m <= 6; m++) {
+    row1.push(`${year}-${String(m).padStart(2, "0")}`);
   }
-  return months;
+  for (let m = 7; m <= 12; m++) {
+    row2.push(`${year}-${String(m).padStart(2, "0")}`);
+  }
+  return [row1, row2];
 }
 
 const dataNoticeText: Record<DashboardDataNotice, string> = {
@@ -115,10 +115,14 @@ export function PaymentsDashboard({
     [payments],
   );
 
-  const monthsForYearFilter = useMemo(
-    () => calendarMonthsForFilter(selectedYear),
-    [selectedYear],
-  );
+  const yearCalendars = useMemo(() => {
+    const years =
+      selectedYear === "both" ? [2025, 2026] : selectedYear === "2025" ? [2025] : [2026];
+    return years.map((y) => {
+      const [rowA, rowB] = monthsGridForYear(y);
+      return { year: y, rows: [rowA, rowB] as const };
+    });
+  }, [selectedYear]);
 
   const filteredPayments = useMemo(() => {
     return payments.filter((payment) => {
@@ -288,29 +292,49 @@ export function PaymentsDashboard({
                 </button>
               )}
             </div>
-            <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-100 p-2">
-              <div className="flex flex-wrap gap-2">
-                {monthsForYearFilter.map((month) => {
-                  const active = selectedMonths.includes(month);
-                  const hasData = monthsInData.includes(month);
-                  return (
-                    <button
-                      key={month}
-                      type="button"
-                      title={hasData ? "Há lançamentos neste mês" : "Sem lançamentos nos dados atuais"}
-                      onClick={() => toggleMonth(month)}
-                      className={`rounded-full border px-3 py-1 text-sm transition ${
-                        active
-                          ? "border-teal-600 bg-teal-600 text-white"
-                          : hasData
-                            ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                            : "border-dashed border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
-                      }`}
-                    >
-                      {monthLabel(month)}
-                    </button>
-                  );
-                })}
+            <div className="rounded-lg border border-slate-100 bg-slate-50/40 p-3">
+              <div className="flex flex-col gap-6">
+                {yearCalendars.map(({ year, rows }) => (
+                  <div key={year} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                    <p className="mb-3 text-center text-sm font-semibold tracking-wide text-slate-800">
+                      {year}
+                    </p>
+                    <div className="flex flex-col gap-2">
+                      {rows.map((rowMonths) => (
+                        <div
+                          key={rowMonths[0]}
+                          className="grid grid-cols-6 gap-1.5 sm:gap-2"
+                        >
+                          {rowMonths.map((month) => {
+                            const active = selectedMonths.includes(month);
+                            const hasData = monthsInData.includes(month);
+                            return (
+                              <button
+                                key={month}
+                                type="button"
+                                title={
+                                  hasData
+                                    ? "Há lançamentos neste mês"
+                                    : "Sem lançamentos nos dados atuais"
+                                }
+                                onClick={() => toggleMonth(month)}
+                                className={`min-w-0 rounded-lg border px-1 py-2 text-center text-[10px] leading-tight transition sm:px-2 sm:text-xs ${
+                                  active
+                                    ? "border-teal-600 bg-teal-600 text-white"
+                                    : hasData
+                                      ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                                      : "border-dashed border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
+                                }`}
+                              >
+                                {monthLabel(month)}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
