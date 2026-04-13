@@ -63,6 +63,28 @@ function toNumericValue(value: unknown) {
   return 0;
 }
 
+/**
+ * Quantidade de inscritos: inteiros ou texto "1.129" (mil cento e vinte e nove).
+ * Se o banco entregar o float **1.129** em vez do inteiro **1129**, corrige só o caso **1.xxx**
+ * (mil + xxx): `1.129` → 1129. Evita tratar 3,5 ou 12,5 como milhares.
+ */
+function parseInscritoCount(value: unknown): number {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < 0) return 0;
+    if (value === Math.floor(value)) return Math.floor(value);
+    const t = value.toFixed(3);
+    const m = /^1\.(\d{3})$/.exec(t);
+    if (m) {
+      return 1000 + parseInt(m[1], 10);
+    }
+    return Math.round(value);
+  }
+  if (typeof value === "string") {
+    return Math.round(toNumericValue(value));
+  }
+  return 0;
+}
+
 /** Colunas comuns para a sigla da UF (planilhas UF vs coord podem diferir). */
 const UF_COLUMN_KEYS = [
   "uf",
@@ -175,8 +197,8 @@ function getQtdInscritFromRow(row: Record<string, unknown>): number | null {
   ];
   for (const k of keys) {
     if (k in row) {
-      const v = toNumericValue(row[k]);
-      if (Number.isFinite(v) && v >= 0) return v;
+      const v = parseInscritoCount(row[k]);
+      if (v >= 0) return v;
     }
   }
   return null;
