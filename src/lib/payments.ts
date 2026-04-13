@@ -47,7 +47,11 @@ function monthColumnToIsoDate(columnName: string) {
 function toNumericValue(value: unknown) {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
   if (typeof value === "string") {
-    const normalized = value.replace(/\./g, "").replace(",", ".");
+    let s = value.trim().replace(/\u00a0/g, " ");
+    // Células no Supabase podem vir como "R$ 3.816,31" (varchar)
+    s = s.replace(/^(R\$\s*)/i, "").trim();
+    if (!s || s === "-" || s === "—") return 0;
+    const normalized = s.replace(/\./g, "").replace(",", ".");
     const numeric = Number(normalized);
     return Number.isFinite(numeric) ? numeric : 0;
   }
