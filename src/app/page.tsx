@@ -1,6 +1,9 @@
 import { PaymentsDashboard } from "@/components/payments-dashboard";
 import { getDashboardData } from "@/lib/payments";
 
+/** Sem isso, o Next gera a página no `next build` e os dados do Supabase ficam “congelados” (ex.: tudo zerado). */
+export const dynamic = "force-dynamic";
+
 export default async function Home() {
   const { payments, enrolledByUf, dataNotice, enrolledUnavailable } =
     await getDashboardData();
