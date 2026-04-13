@@ -187,6 +187,19 @@ export function PaymentsDashboard({
       }));
   }, [filteredBancaRows]);
 
+  /** Somatórios da tabela pgto_banca (independente do filtro de ano do gráfico). */
+  const bancaTotalsSummary = useMemo(() => {
+    let total = 0;
+    let total2025 = 0;
+    let total2026 = 0;
+    for (const row of bancaPayments) {
+      total += row.amount;
+      if (row.ano === 2025) total2025 += row.amount;
+      if (row.ano === 2026) total2026 += row.amount;
+    }
+    return { total, total2025, total2026 };
+  }, [bancaPayments]);
+
   const totalValue = filteredPayments.reduce((acc, item) => acc + item.amount, 0);
   const totalRecords = filteredPayments.length;
   const avgValue = totalRecords > 0 ? totalValue / totalRecords : 0;
@@ -655,26 +668,44 @@ export function PaymentsDashboard({
           ano). Use o filtro <strong>Ano</strong> acima (2025, 2026 ou ambos). Filtros de mês e UF não se
           aplicam a esta tabela.
         </p>
-        <div
-          className="w-full min-h-[min(28rem,70vh)]"
-          style={{ height: Math.max(280, bancaChartData.length * 36 + 80) }}
-        >
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <article className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+              {formatCurrency(bancaTotalsSummary.total)}
+            </p>
+          </article>
+          <article className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total em 2025</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+              {formatCurrency(bancaTotalsSummary.total2025)}
+            </p>
+          </article>
+          <article className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total em 2026</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+              {formatCurrency(bancaTotalsSummary.total2026)}
+            </p>
+          </article>
+        </div>
+        <div className="h-[min(28rem,70vh)] w-full min-h-[20rem]">
           {isClient && bancaChartData.length > 0 && (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                layout="vertical"
                 data={bancaChartData}
-                margin={{ left: 8, right: 16, top: 8, bottom: 8 }}
+                margin={{ left: 4, right: 12, top: 8, bottom: 100 }}
               >
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} />
-                <YAxis
-                  type="category"
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis
                   dataKey="atvLabel"
-                  width={200}
-                  tick={{ fontSize: 10 }}
+                  type="category"
                   interval={0}
+                  angle={-38}
+                  textAnchor="end"
+                  height={100}
+                  tick={{ fontSize: 9 }}
                 />
+                <YAxis tickFormatter={(v) => formatCurrency(v)} width={72} />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (!active || !payload?.[0]) return null;
@@ -688,7 +719,7 @@ export function PaymentsDashboard({
                     );
                   }}
                 />
-                <Bar dataKey="amount" name="Valor" radius={[0, 6, 6, 0]} fill="#0d9488" minPointSize={2} />
+                <Bar dataKey="amount" name="Valor" radius={[6, 6, 0, 0]} fill="#0d9488" minPointSize={2} />
               </BarChart>
             </ResponsiveContainer>
           )}
