@@ -22,6 +22,7 @@ type PaymentsDashboardProps = {
   payments: PaymentRecord[];
   enrolledByUf: Record<string, number>;
   dataNotice?: DashboardDataNotice;
+  enrolledUnavailable?: boolean;
 };
 
 const chartColors = ["#1e40af", "#2563eb", "#0d9488", "#f97316", "#6d28d9"];
@@ -98,11 +99,14 @@ const dataNoticeText: Record<DashboardDataNotice, string> = {
     "Não há conexão com o Supabase (variáveis NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY ausentes ou inválidas). O gráfico de valores usa apenas os lançamentos das tabelas pgto_* — configure o ambiente para ver os totais reais.",
   supabase_fetch_error:
     "Falha ao ler as tabelas de pagamento no Supabase. Verifique nomes das tabelas, políticas RLS e a chave anon. Nenhum valor de demonstração é exibido.",
-  enrolled_fetch_error:
-    "Pagamentos carregados; a tabela de quantidade de inscritos por UF (qtd_inscrit_uf) não pôde ser lida. O card de inscritos pode ficar zerado.",
 };
 
-export function PaymentsDashboard({ payments, enrolledByUf, dataNotice }: PaymentsDashboardProps) {
+export function PaymentsDashboard({
+  payments,
+  enrolledByUf,
+  dataNotice,
+  enrolledUnavailable,
+}: PaymentsDashboardProps) {
   const [selectedUfs, setSelectedUfs] = useState<string[]>([]);
   /** Vazio = todos os meses do período de ano selecionado. */
   const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
@@ -248,7 +252,15 @@ export function PaymentsDashboard({ payments, enrolledByUf, dataNotice }: Paymen
         </article>
         <article className="rounded-lg bg-slate-50 p-4">
           <p className="text-sm text-slate-500">Qtd. inscritos (UF)</p>
-          <p className="mt-1 text-2xl font-semibold text-slate-900">{totalEnrolled}</p>
+          <p className="mt-1 text-2xl font-semibold text-slate-900">
+            {enrolledUnavailable ? "—" : totalEnrolled}
+          </p>
+          {enrolledUnavailable && (
+            <p className="mt-2 text-xs leading-snug text-slate-500">
+              Tabela <code className="rounded bg-slate-200/80 px-1">qtd_inscrit_uf</code> indisponível
+              (RLS, nome ou permissão). Os gráficos de valores não usam este dado.
+            </p>
+          )}
         </article>
       </div>
 

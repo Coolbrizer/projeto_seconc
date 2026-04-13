@@ -7,14 +7,13 @@ export type PaymentRecord = {
   source: "coord" | "uf";
 };
 
-export type DashboardDataNotice =
-  | "missing_supabase"
-  | "supabase_fetch_error"
-  | "enrolled_fetch_error";
+export type DashboardDataNotice = "missing_supabase" | "supabase_fetch_error";
 
 export type DashboardData = {
   payments: PaymentRecord[];
   enrolledByUf: Record<string, number>;
   /** Quando não há dados reais ou falhou leitura (evita confundir com demo). */
   dataNotice?: DashboardDataNotice;
+  /** True se a tabela qtd_inscrit_uf não pôde ser lida (pagamentos seguem ok). */
+  enrolledUnavailable?: boolean;
 };

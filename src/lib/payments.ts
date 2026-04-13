@@ -119,7 +119,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     return {
       payments: payments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
       enrolledByUf: {},
-      dataNotice: "enrolled_fetch_error",
+      enrolledUnavailable: true,
     };
   }
 
