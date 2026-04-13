@@ -1,5 +1,5 @@
 import { getSupabase } from "@/lib/supabase";
-import type { DashboardData, PaymentRecord } from "@/types/payment";
+import type { BancaPaymentRecord, DashboardData, PaymentRecord } from "@/types/payment";
 
 const monthMap: Record<string, string> = {
   jan: "01",
@@ -91,7 +91,7 @@ function getUfFromRow(row: Record<string, unknown>): string {
   return typeof fallback === "string" ? fallback.trim().toUpperCase() : "";
 }
 
-function normalizeTableRows(rows: Array<Record<string, unknown>>, source: "coord" | "uf" | "banca") {
+function normalizeTableRows(rows: Array<Record<string, unknown>>, source: "coord" | "uf") {
   const nowIso = new Date().toISOString();
   const records: PaymentRecord[] = [];
 
@@ -123,6 +123,65 @@ function normalizeTableRows(rows: Array<Record<string, unknown>>, source: "coord
   return records;
 }
 
+function parseAno(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.floor(value);
+  if (typeof value === "string") {
+    const n = Number(value.trim().replace(",", "."));
+    if (Number.isFinite(n)) return Math.floor(n);
+  }
+  return null;
+}
+
+/** Tabela `pgto_banca`: colunas `atv` (PK), `valor` (varchar), `ano` (numeric). */
+function normalizeBancaRows(rows: Array<Record<string, unknown>>): BancaPaymentRecord[] {
+  const records: BancaPaymentRecord[] = [];
+
+  rows.forEach((row, i) => {
+    const atvRaw = row.atv ?? row.ATV ?? row.atividade;
+    const atv = typeof atvRaw === "string" ? atvRaw.trim() : "";
+    if (!atv) return;
+
+    const ano = parseAno(row.ano ?? row.Ano);
+    if (ano == null || ano < 2000 || ano > 2100) return;
+
+    const valorRaw = row.valor ?? row.Valor;
+    const amount = toNumericValue(valorRaw);
+    if (amount <= 0) return;
+
+    const safeId = `${i}-${atv.slice(0, 24).replace(/\s+/g, "-")}`;
+    records.push({
+      id: `banca-${safeId}`,
+      atv,
+      ano,
+      amount,
+    });
+  });
+
+  return records;
+}
+
+function getQtdInscritFromRow(row: Record<string, unknown>): number | null {
+  const keys = [
+    "qtd_inscrit",
+    "qtd_inscritos",
+    "qtd_inscrit_uf",
+    "QTD_INSCRIT",
+    "QTD_INSCRITOS",
+    "quantidade",
+    "qtde_inscritos",
+    "qtde",
+    "qtd",
+    "inscritos",
+  ];
+  for (const k of keys) {
+    if (k in row) {
+      const v = toNumericValue(row[k]);
+      if (Number.isFinite(v) && v >= 0) return v;
+    }
+  }
+  return null;
+}
+
 export async function getDashboardData(): Promise<DashboardData> {
   const supabase = getSupabase();
   if (!supabase) {
@@ -151,26 +210,23 @@ export async function getDashboardData(): Promise<DashboardData> {
     payments.push(...normalizeTableRows((data ?? []) as Array<Record<string, unknown>>, sourceTable.source));
   }
 
-  let bancaPayments: PaymentRecord[] = [];
+  let bancaPayments: BancaPaymentRecord[] = [];
   const bancaResult = await supabase.from("pgto_banca").select("*");
   if (bancaResult.error) {
     console.error("Erro ao buscar tabela pgto_banca:", bancaResult.error.message);
   } else {
-    bancaPayments = normalizeTableRows(
-      (bancaResult.data ?? []) as Array<Record<string, unknown>>,
-      "banca",
-    );
+    bancaPayments = normalizeBancaRows((bancaResult.data ?? []) as Array<Record<string, unknown>>);
   }
 
   const { data: enrolledRows, error: enrolledError } = await supabase
     .from("qtd_inscrit_uf")
-    .select("uf, qtd_inscrit");
+    .select("*");
 
   if (enrolledError) {
     console.error("Erro ao buscar tabela qtd_inscrit_uf:", enrolledError.message);
     return {
       payments: payments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
-      bancaPayments: bancaPayments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
+      bancaPayments: bancaPayments.sort((a, b) => a.atv.localeCompare(b.atv)),
       enrolledByUf: {},
       enrolledUnavailable: true,
     };
@@ -180,14 +236,15 @@ export async function getDashboardData(): Promise<DashboardData> {
     const r = row as Record<string, unknown>;
     const uf = getUfFromRow(r);
     if (!uf) return acc;
-    const qtd = r.qtd_inscrit ?? r.QTD_INSCRIT;
-    acc[uf] = toNumericValue(qtd);
+    const qtd = getQtdInscritFromRow(r);
+    if (qtd == null) return acc;
+    acc[uf] = qtd;
     return acc;
   }, {});
 
   return {
     payments: payments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
-    bancaPayments: bancaPayments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
+    bancaPayments: bancaPayments.sort((a, b) => a.atv.localeCompare(b.atv)),
     enrolledByUf,
   };
 }

@@ -13,11 +13,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { DashboardDataNotice, PaymentRecord } from "@/types/payment";
+import type { BancaPaymentRecord, DashboardDataNotice, PaymentRecord } from "@/types/payment";
 
 type PaymentsDashboardProps = {
   payments: PaymentRecord[];
-  bancaPayments: PaymentRecord[];
+  bancaPayments: BancaPaymentRecord[];
   enrolledByUf: Record<string, number>;
   dataNotice?: DashboardDataNotice;
   enrolledUnavailable?: boolean;
@@ -137,12 +137,11 @@ export function PaymentsDashboard({
   const [unitChartSort, setUnitChartSort] = useState<UnitChartSort>("unit-desc");
   const isClient = typeof window !== "undefined";
 
-  const monthsInData = useMemo(() => {
-    const keys = new Set<string>();
-    payments.forEach((p) => keys.add(p.reference_month.slice(0, 7)));
-    bancaPayments.forEach((p) => keys.add(p.reference_month.slice(0, 7)));
-    return [...keys].sort();
-  }, [payments, bancaPayments]);
+  const monthsInData = useMemo(
+    () =>
+      [...new Set(payments.map((payment) => payment.reference_month.slice(0, 7)))].sort(),
+    [payments],
+  );
 
   const yearCalendars = useMemo(() => {
     const years =
@@ -168,19 +167,25 @@ export function PaymentsDashboard({
     });
   }, [payments, selectedMonths, selectedSource, selectedUfs, selectedYear]);
 
-  const filteredBancaPayments = useMemo(() => {
-    return bancaPayments.filter((payment) => {
-      const month = payment.reference_month.slice(0, 7);
-      const year = payment.reference_month.slice(0, 4);
-      if (selectedYear === "2025" && year !== "2025") return false;
-      if (selectedYear === "2026" && year !== "2026") return false;
-      if (selectedYear === "both" && year !== "2025" && year !== "2026") return false;
-      const matchMonth =
-        selectedMonths.length === 0 || selectedMonths.includes(month);
-      const matchUf = selectedUfs.length === 0 || selectedUfs.includes(payment.uf);
-      return matchMonth && matchUf;
+  /** Banca: só filtro por ano (coluna `ano`); não há UF nem mês na tabela. */
+  const filteredBancaRows = useMemo(() => {
+    return bancaPayments.filter((row) => {
+      if (selectedYear === "2025" && row.ano !== 2025) return false;
+      if (selectedYear === "2026" && row.ano !== 2026) return false;
+      if (selectedYear === "both" && row.ano !== 2025 && row.ano !== 2026) return false;
+      return true;
     });
-  }, [bancaPayments, selectedMonths, selectedUfs, selectedYear]);
+  }, [bancaPayments, selectedYear]);
+
+  const bancaChartData = useMemo(() => {
+    return [...filteredBancaRows]
+      .sort((a, b) => b.amount - a.amount)
+      .map((row) => ({
+        ...row,
+        atvLabel:
+          row.atv.length > 48 ? `${row.atv.slice(0, 46).trim()}…` : row.atv,
+      }));
+  }, [filteredBancaRows]);
 
   const totalValue = filteredPayments.reduce((acc, item) => acc + item.amount, 0);
   const totalRecords = filteredPayments.length;
@@ -222,20 +227,6 @@ export function PaymentsDashboard({
     }
     return rows;
   }, [totalsByUfBarChart, ufBarSort]);
-
-  const totalsByUfBancaBar = useMemo(() => {
-    const displayUfs =
-      selectedUfs.length > 0
-        ? [...selectedUfs].sort((a, b) => a.localeCompare(b))
-        : [...ALL_UFS];
-    const grouped = new Map<string, number>();
-    displayUfs.forEach((uf) => grouped.set(uf, 0));
-    filteredBancaPayments.forEach((item) => {
-      if (!grouped.has(item.uf)) return;
-      grouped.set(item.uf, (grouped.get(item.uf) ?? 0) + item.amount);
-    });
-    return displayUfs.map((uf) => ({ uf, amount: grouped.get(uf) ?? 0 }));
-  }, [filteredBancaPayments, selectedUfs]);
 
   const unitPerUfRows = useMemo(() => {
     const displayUfs =
@@ -660,27 +651,51 @@ export function PaymentsDashboard({
       <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
         <h2 className="mb-2 text-lg font-semibold text-slate-900">Pagamento à banca examinadora (31º CPR)</h2>
         <p className="mb-4 text-sm text-slate-600">
-          Valores da tabela <code className="rounded bg-slate-100 px-1">pgto_banca</code>, com os mesmos
-          filtros de ano, mês e UF acima.
+          Dados da tabela <code className="rounded bg-slate-100 px-1">pgto_banca</code> (atividade, valor,
+          ano). Use o filtro <strong>Ano</strong> acima (2025, 2026 ou ambos). Filtros de mês e UF não se
+          aplicam a esta tabela.
         </p>
-        <div className="h-[min(24rem,60vh)] w-full min-h-[16rem]">
-          {isClient && (
+        <div
+          className="w-full min-h-[min(28rem,70vh)]"
+          style={{ height: Math.max(280, bancaChartData.length * 36 + 80) }}
+        >
+          {isClient && bancaChartData.length > 0 && (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={totalsByUfBancaBar} margin={{ bottom: 8, left: 4, right: 8, top: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="uf" interval={0} tick={{ fontSize: 10 }} height={36} />
-                <YAxis tickFormatter={formatCurrency} width={72} />
-                <Tooltip formatter={formatCurrency} />
-                <Bar dataKey="amount" name="Banca" radius={[6, 6, 0, 0]} minPointSize={3}>
-                  {totalsByUfBancaBar.map((entry) => (
-                    <Cell
-                      key={entry.uf}
-                      fill={entry.amount > 0 ? "#0d9488" : "#e2e8f0"}
-                    />
-                  ))}
-                </Bar>
+              <BarChart
+                layout="vertical"
+                data={bancaChartData}
+                margin={{ left: 8, right: 16, top: 8, bottom: 8 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} />
+                <YAxis
+                  type="category"
+                  dataKey="atvLabel"
+                  width={200}
+                  tick={{ fontSize: 10 }}
+                  interval={0}
+                />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.[0]) return null;
+                    const p = payload[0].payload as BancaPaymentRecord & { atvLabel: string };
+                    return (
+                      <div className="max-w-md rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
+                        <p className="font-medium leading-snug text-slate-900">{p.atv}</p>
+                        <p className="mt-1 text-teal-800">{formatCurrency(p.amount)}</p>
+                        <p className="text-slate-500">Ano: {p.ano}</p>
+                      </div>
+                    );
+                  }}
+                />
+                <Bar dataKey="amount" name="Valor" radius={[0, 6, 6, 0]} fill="#0d9488" minPointSize={2} />
               </BarChart>
             </ResponsiveContainer>
+          )}
+          {isClient && bancaChartData.length === 0 && (
+            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-500">
+              Nenhum registro de banca para o ano selecionado ou tabela vazia / sem permissão de leitura.
+            </p>
           )}
         </div>
       </article>

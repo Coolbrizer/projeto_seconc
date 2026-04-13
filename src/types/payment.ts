@@ -4,7 +4,15 @@ export type PaymentRecord = {
   reference_month: string;
   amount: number;
   created_at: string;
-  source: "coord" | "uf" | "banca";
+  source: "coord" | "uf";
+};
+
+/** Linhas da tabela `pgto_banca` (atividade, valor, ano). */
+export type BancaPaymentRecord = {
+  id: string;
+  atv: string;
+  ano: number;
+  amount: number;
 };
 
 export type DashboardDataNotice = "missing_supabase" | "supabase_fetch_error";
@@ -12,7 +20,7 @@ export type DashboardDataNotice = "missing_supabase" | "supabase_fetch_error";
 export type DashboardData = {
   payments: PaymentRecord[];
   /** Pagamentos à banca examinadora (tabela `pgto_banca`). */
-  bancaPayments: PaymentRecord[];
+  bancaPayments: BancaPaymentRecord[];
   enrolledByUf: Record<string, number>;
   /** Quando não há dados reais ou falhou leitura (evita confundir com demo). */
   dataNotice?: DashboardDataNotice;
