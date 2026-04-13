@@ -28,8 +28,13 @@ const sourceTables: SourceTable[] = [
   { table: "pgto_uf_2026", source: "uf" },
 ];
 
+/**
+ * Colunas de mês no formato largo: `mar./25` (UF) ou `mar/25` (coord, sem ponto).
+ */
 function monthColumnToIsoDate(columnName: string) {
-  const parsed = columnName.match(/^([a-z]{3})\.\/(\d{2})$/i);
+  const trimmed = columnName.trim();
+  const parsed =
+    trimmed.match(/^([a-z]{3})\.\/(\d{2})$/i) ?? trimmed.match(/^([a-z]{3})\/(\d{2})$/i);
   if (!parsed) {
     return null;
   }
@@ -58,9 +63,32 @@ function toNumericValue(value: unknown) {
   return 0;
 }
 
+/** Colunas comuns para a sigla da UF (planilhas UF vs coord podem diferir). */
+const UF_COLUMN_KEYS = [
+  "uf",
+  "UF",
+  "estado",
+  "Estado",
+  "sigla",
+  "Sigla",
+  "SIGLA",
+  "sigla_uf",
+  "Sigla_UF",
+];
+
+const SKIP_NON_MONTH_KEYS = new Set(UF_COLUMN_KEYS.map((k) => k.toLowerCase()));
+
 function getUfFromRow(row: Record<string, unknown>): string {
-  const raw = row.uf ?? row.UF;
-  return typeof raw === "string" ? raw.trim().toUpperCase() : "";
+  for (const key of UF_COLUMN_KEYS) {
+    const raw = row[key];
+    if (typeof raw !== "string") continue;
+    const t = raw.trim();
+    if (t.length === 2 && /^[A-Za-z]{2}$/.test(t)) {
+      return t.toUpperCase();
+    }
+  }
+  const fallback = row.uf ?? row.UF;
+  return typeof fallback === "string" ? fallback.trim().toUpperCase() : "";
 }
 
 function normalizeTableRows(rows: Array<Record<string, unknown>>, source: "coord" | "uf") {
@@ -72,7 +100,9 @@ function normalizeTableRows(rows: Array<Record<string, unknown>>, source: "coord
     if (!uf) return;
 
     Object.entries(row).forEach(([columnName, value]) => {
-      if (columnName.toLowerCase() === "uf") return;
+      const col = columnName.trim();
+      const colLower = col.toLowerCase();
+      if (SKIP_NON_MONTH_KEYS.has(colLower)) return;
       const referenceMonth = monthColumnToIsoDate(columnName);
       if (!referenceMonth) return;
 
