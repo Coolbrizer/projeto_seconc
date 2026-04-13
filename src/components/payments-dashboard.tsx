@@ -73,8 +73,23 @@ function formatCurrency(value: unknown) {
 }
 
 function monthLabel(value: string) {
-  const date = new Date(`${value}T00:00:00`);
+  const iso =
+    value.length === 7 && /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : value;
+  const date = new Date(`${iso}T00:00:00`);
   return date.toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
+}
+
+/** Meses do calendário (jan–dez) para os filtros, não só meses que já têm lançamento. */
+function calendarMonthsForFilter(selectedYear: "both" | "2025" | "2026"): string[] {
+  const years =
+    selectedYear === "both" ? [2025, 2026] : selectedYear === "2025" ? [2025] : [2026];
+  const months: string[] = [];
+  for (const y of years) {
+    for (let m = 1; m <= 12; m++) {
+      months.push(`${y}-${String(m).padStart(2, "0")}`);
+    }
+  }
+  return months;
 }
 
 export function PaymentsDashboard({ payments, enrolledByUf }: PaymentsDashboardProps) {
@@ -96,13 +111,10 @@ export function PaymentsDashboard({ payments, enrolledByUf }: PaymentsDashboardP
     [payments],
   );
 
-  const monthsForYearFilter = useMemo(() => {
-    return monthsInData.filter((m) => {
-      if (selectedYear === "2025") return m.startsWith("2025");
-      if (selectedYear === "2026") return m.startsWith("2026");
-      return m.startsWith("2025") || m.startsWith("2026");
-    });
-  }, [monthsInData, selectedYear]);
+  const monthsForYearFilter = useMemo(
+    () => calendarMonthsForFilter(selectedYear),
+    [selectedYear],
+  );
 
   const filteredPayments = useMemo(() => {
     return payments.filter((payment) => {
@@ -122,7 +134,7 @@ export function PaymentsDashboard({ payments, enrolledByUf }: PaymentsDashboardP
   const totalValue = filteredPayments.reduce((acc, item) => acc + item.amount, 0);
   const totalRecords = filteredPayments.length;
   const avgValue = totalRecords > 0 ? totalValue / totalRecords : 0;
-  const totalEnrolled = (selectedUfs.length === 0 ? ufs : selectedUfs).reduce(
+  const totalEnrolled = (selectedUfs.length === 0 ? [...ALL_UFS] : selectedUfs).reduce(
     (acc, uf) => acc + (enrolledByUf[uf] ?? 0),
     0,
   );
@@ -227,6 +239,7 @@ export function PaymentsDashboard({ payments, enrolledByUf }: PaymentsDashboardP
             <p className="mt-1 text-sm text-slate-600">
               Somatório por UF conforme filtros ({yearFilterLabel}
               {selectedMonths.length > 0 ? ` · ${selectedMonths.length} mês(es)` : " · todos os meses"}).
+              UFs sem lançamento no período aparecem com total R$ 0 (barra cinza).
             </p>
           </div>
         </div>
@@ -277,34 +290,36 @@ export function PaymentsDashboard({ payments, enrolledByUf }: PaymentsDashboardP
                 </button>
               )}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {monthsForYearFilter.length === 0 ? (
-                <p className="text-sm text-slate-500">Nenhum mês disponível para este ano nos dados.</p>
-              ) : (
-                monthsForYearFilter.map((month) => {
+            <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-100 p-2">
+              <div className="flex flex-wrap gap-2">
+                {monthsForYearFilter.map((month) => {
                   const active = selectedMonths.includes(month);
+                  const hasData = monthsInData.includes(month);
                   return (
                     <button
                       key={month}
                       type="button"
+                      title={hasData ? "Há lançamentos neste mês" : "Sem lançamentos nos dados atuais"}
                       onClick={() => toggleMonth(month)}
                       className={`rounded-full border px-3 py-1 text-sm transition ${
                         active
                           ? "border-teal-600 bg-teal-600 text-white"
-                          : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                          : hasData
+                            ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                            : "border-dashed border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
                       }`}
                     >
                       {monthLabel(month)}
                     </button>
                   );
-                })
-              )}
+                })}
+              </div>
             </div>
           </div>
 
           <div>
             <p className="mb-2 text-sm font-medium text-slate-700">
-              UFs (vazio = todas as 27 UFs no gráfico)
+              UFs (vazio = todas as 27 UFs no gráfico; role a lista)
             </p>
             <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 p-3">
               <div className="flex flex-wrap gap-2">
@@ -338,7 +353,19 @@ export function PaymentsDashboard({ payments, enrolledByUf }: PaymentsDashboardP
                 <XAxis dataKey="uf" interval={0} tick={{ fontSize: 10 }} height={36} />
                 <YAxis tickFormatter={formatCurrency} width={72} />
                 <Tooltip formatter={formatCurrency} />
-                <Bar dataKey="amount" fill="#2563eb" radius={[6, 6, 0, 0]} name="Total" />
+                <Bar
+                  dataKey="amount"
+                  radius={[6, 6, 0, 0]}
+                  name="Total"
+                  minPointSize={3}
+                >
+                  {totalsByUfBarChart.map((entry) => (
+                    <Cell
+                      key={entry.uf}
+                      fill={entry.amount > 0 ? "#2563eb" : "#e2e8f0"}
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           )}
