@@ -76,6 +76,14 @@ function monthLabel(value: string) {
   return date.toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
 }
 
+/** Só o mês (ex.: “jan.”), para chips compactos — o ano fica no título do bloco. */
+function monthShortLabel(value: string) {
+  const iso =
+    value.length === 7 && /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : value;
+  const date = new Date(`${iso}T00:00:00`);
+  return date.toLocaleDateString("pt-BR", { month: "short" });
+}
+
 /** Duas linhas por ano: jan–jun e jul–dez (6 meses por linha). */
 function monthsGridForYear(year: number): [string[], string[]] {
   const row1: string[] = [];
@@ -292,18 +300,27 @@ export function PaymentsDashboard({
                 </button>
               )}
             </div>
-            <div className="rounded-lg border border-slate-100 bg-slate-50/40 p-3">
-              <div className="flex flex-col gap-6">
+            <div className="rounded-lg border border-slate-100 bg-slate-50/40 p-2 sm:p-3">
+              <div
+                className={
+                  yearCalendars.length > 1
+                    ? "grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-3"
+                    : "grid grid-cols-1"
+                }
+              >
                 {yearCalendars.map(({ year, rows }) => (
-                  <div key={year} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                    <p className="mb-3 text-center text-sm font-semibold tracking-wide text-slate-800">
+                  <div
+                    key={year}
+                    className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm sm:p-2.5"
+                  >
+                    <p className="mb-2 text-center text-xs font-semibold text-slate-800 sm:text-sm">
                       {year}
                     </p>
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-1.5">
                       {rows.map((rowMonths) => (
                         <div
                           key={rowMonths[0]}
-                          className="grid grid-cols-6 gap-1.5 sm:gap-2"
+                          className="grid grid-cols-6 gap-1"
                         >
                           {rowMonths.map((month) => {
                             const active = selectedMonths.includes(month);
@@ -313,12 +330,12 @@ export function PaymentsDashboard({
                                 key={month}
                                 type="button"
                                 title={
-                                  hasData
-                                    ? "Há lançamentos neste mês"
-                                    : "Sem lançamentos nos dados atuais"
+                                  (hasData
+                                    ? "Há lançamentos — "
+                                    : "Sem lançamentos — ") + monthLabel(month)
                                 }
                                 onClick={() => toggleMonth(month)}
-                                className={`min-w-0 rounded-lg border px-1 py-2 text-center text-[10px] leading-tight transition sm:px-2 sm:text-xs ${
+                                className={`min-w-0 rounded-md border px-0.5 py-1.5 text-center text-[9px] leading-none transition sm:text-[10px] ${
                                   active
                                     ? "border-teal-600 bg-teal-600 text-white"
                                     : hasData
@@ -326,7 +343,7 @@ export function PaymentsDashboard({
                                       : "border-dashed border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
                                 }`}
                               >
-                                {monthLabel(month)}
+                                {monthShortLabel(month)}
                               </button>
                             );
                           })}
