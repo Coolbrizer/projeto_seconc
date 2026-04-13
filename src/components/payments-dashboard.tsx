@@ -228,17 +228,18 @@ export function PaymentsDashboard({
           <p className="text-sm text-slate-500">Média por lançamento</p>
           <p className="mt-1 text-2xl font-semibold text-slate-900">{currency.format(avgValue)}</p>
         </article>
-        <article className="rounded-lg bg-slate-50 p-4">
+        <article
+          className="rounded-lg bg-slate-50 p-4"
+          title={
+            enrolledUnavailable
+              ? "Para exibir inscritos: no Supabase, crie política SELECT na tabela qtd_inscrit_uf para o papel anon (como nas tabelas pgto_*)."
+              : undefined
+          }
+        >
           <p className="text-sm text-slate-500">Qtd. inscritos (UF)</p>
           <p className="mt-1 text-2xl font-semibold text-slate-900">
             {enrolledUnavailable ? "—" : totalEnrolled}
           </p>
-          {enrolledUnavailable && (
-            <p className="mt-2 text-xs leading-snug text-slate-500">
-              Tabela <code className="rounded bg-slate-200/80 px-1">qtd_inscrit_uf</code> indisponível
-              (RLS, nome ou permissão). Os gráficos de valores não usam este dado.
-            </p>
-          )}
         </article>
       </div>
 
