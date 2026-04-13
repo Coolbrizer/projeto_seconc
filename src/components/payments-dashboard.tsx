@@ -6,11 +6,8 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Legend,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -24,8 +21,6 @@ type PaymentsDashboardProps = {
   dataNotice?: DashboardDataNotice;
   enrolledUnavailable?: boolean;
 };
-
-const chartColors = ["#1e40af", "#2563eb", "#0d9488", "#f97316", "#6d28d9"];
 
 /** Todas as UFs para o gráfico principal (somatório 2025 + 2026 por padrão). */
 const ALL_UFS = [
@@ -114,11 +109,6 @@ export function PaymentsDashboard({
   const [selectedSource, setSelectedSource] = useState<"all" | "coord" | "uf">("all");
   const isClient = typeof window !== "undefined";
 
-  const ufs = useMemo(
-    () => [...new Set(payments.map((payment) => payment.uf))].sort(),
-    [payments],
-  );
-
   const monthsInData = useMemo(
     () =>
       [...new Set(payments.map((payment) => payment.reference_month.slice(0, 7)))].sort(),
@@ -168,16 +158,6 @@ export function PaymentsDashboard({
     return displayUfs.map((uf) => ({ uf, amount: grouped.get(uf) ?? 0 }));
   }, [filteredPayments, selectedUfs]);
 
-  const totalsByUf = useMemo(() => {
-    const grouped = new Map<string, number>();
-    filteredPayments.forEach((item) => {
-      grouped.set(item.uf, (grouped.get(item.uf) ?? 0) + item.amount);
-    });
-    return Array.from(grouped.entries())
-      .map(([uf, amount]) => ({ uf, amount }))
-      .sort((a, b) => b.amount - a.amount);
-  }, [filteredPayments]);
-
   const totalsByMonth = (() => {
     const grouped = new Map<string, number>();
     filteredPayments.forEach((item) => {
@@ -187,20 +167,6 @@ export function PaymentsDashboard({
     return Array.from(grouped.entries())
       .map(([month, amount]) => ({ month, amount }))
       .sort((a, b) => a.month.localeCompare(b.month));
-  })();
-
-  const byMonthAndUf = (() => {
-    const monthlyMap = new Map<string, Record<string, number>>();
-    filteredPayments.forEach((item) => {
-      const month = item.reference_month.slice(0, 7);
-      const base = monthlyMap.get(month) ?? {};
-      base[item.uf] = (base[item.uf] ?? 0) + item.amount;
-      monthlyMap.set(month, base);
-    });
-
-    return Array.from(monthlyMap.entries())
-      .sort(([monthA], [monthB]) => monthA.localeCompare(monthB))
-      .map(([month, values]) => ({ month, ...values }));
   })();
 
   function toggleUf(uf: string) {
@@ -223,7 +189,7 @@ export function PaymentsDashboard({
       <header className="rounded-xl bg-blue-950 px-6 py-7 text-white shadow-lg">
         <h1 className="text-2xl font-bold md:text-3xl">Controle Orçamentário - 31º CPR</h1>
         <p className="mt-2 text-sm text-blue-100 md:text-base">
-          Acompanhe os pagamentos mensais por UF com filtros e comparativos dinâmicos.
+          Acompanhe os pagamentos mensais por UF com filtros dinâmicos.
         </p>
       </header>
 
@@ -404,76 +370,25 @@ export function PaymentsDashboard({
         </div>
       </article>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <article className="rounded-xl bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-base font-semibold text-slate-900">Evolução mensal</h2>
-          <div className="h-80">
-            {isClient && (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={totalsByMonth}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" tickFormatter={monthLabel} />
-                  <YAxis tickFormatter={formatCurrency} />
-                  <Tooltip
-                    formatter={formatCurrency}
-                    labelFormatter={(label) => monthLabel(label)}
-                  />
-                  <Line dataKey="amount" type="monotone" stroke="#0d9488" strokeWidth={3} />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </article>
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <article className="rounded-xl bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-base font-semibold text-slate-900">Participação por UF</h2>
-          <div className="h-80">
-            {isClient && (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={totalsByUf} dataKey="amount" nameKey="uf" outerRadius={120} label>
-                    {totalsByUf.map((entry, index) => (
-                      <Cell key={entry.uf} fill={chartColors[index % chartColors.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={formatCurrency} />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </article>
-
-        <article className="rounded-xl bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-base font-semibold text-slate-900">Comparativo entre UFs</h2>
-          <div className="h-80">
-            {isClient && (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={byMonthAndUf}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" tickFormatter={monthLabel} />
-                  <YAxis tickFormatter={formatCurrency} />
-                  <Tooltip
-                    formatter={formatCurrency}
-                    labelFormatter={(label) => monthLabel(label)}
-                  />
-                  <Legend />
-                  {ufs.map((uf, index) => (
-                    <Line
-                      key={uf}
-                      dataKey={uf}
-                      type="monotone"
-                      stroke={chartColors[index % chartColors.length]}
-                      strokeWidth={2}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </article>
-      </div>
+      <article className="rounded-xl bg-white p-4 shadow-sm">
+        <h2 className="mb-3 text-base font-semibold text-slate-900">Evolução mensal</h2>
+        <div className="h-80">
+          {isClient && (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={totalsByMonth}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" tickFormatter={monthLabel} />
+                <YAxis tickFormatter={formatCurrency} />
+                <Tooltip
+                  formatter={formatCurrency}
+                  labelFormatter={(label) => monthLabel(label)}
+                />
+                <Line dataKey="amount" type="monotone" stroke="#0d9488" strokeWidth={3} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </article>
     </section>
   );
 }
