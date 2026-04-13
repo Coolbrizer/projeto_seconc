@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { getSupabase } from "@/lib/supabase";
 import type { DashboardData, PaymentRecord } from "@/types/payment";
 
 const monthMap: Record<string, string> = {
@@ -58,17 +58,21 @@ function toNumericValue(value: unknown) {
   return 0;
 }
 
+function getUfFromRow(row: Record<string, unknown>): string {
+  const raw = row.uf ?? row.UF;
+  return typeof raw === "string" ? raw.trim().toUpperCase() : "";
+}
+
 function normalizeTableRows(rows: Array<Record<string, unknown>>, source: "coord" | "uf") {
   const nowIso = new Date().toISOString();
   const records: PaymentRecord[] = [];
 
   rows.forEach((row, rowIndex) => {
-    const ufRaw = row.uf;
-    const uf = typeof ufRaw === "string" ? ufRaw.trim().toUpperCase() : "";
+    const uf = getUfFromRow(row);
     if (!uf) return;
 
     Object.entries(row).forEach(([columnName, value]) => {
-      if (columnName === "uf") return;
+      if (columnName.toLowerCase() === "uf") return;
       const referenceMonth = monthColumnToIsoDate(columnName);
       if (!referenceMonth) return;
 
@@ -90,6 +94,7 @@ function normalizeTableRows(rows: Array<Record<string, unknown>>, source: "coord
 }
 
 export async function getDashboardData(): Promise<DashboardData> {
+  const supabase = getSupabase();
   if (!supabase) {
     return {
       payments: [],
@@ -128,9 +133,11 @@ export async function getDashboardData(): Promise<DashboardData> {
   }
 
   const enrolledByUf = (enrolledRows ?? []).reduce<Record<string, number>>((acc, row) => {
-    const uf = typeof row.uf === "string" ? row.uf.trim().toUpperCase() : "";
+    const r = row as Record<string, unknown>;
+    const uf = getUfFromRow(r);
     if (!uf) return acc;
-    acc[uf] = toNumericValue(row.qtd_inscrit);
+    const qtd = r.qtd_inscrit ?? r.QTD_INSCRIT;
+    acc[uf] = toNumericValue(qtd);
     return acc;
   }, {});
 
