@@ -17,6 +17,7 @@ import type { DashboardDataNotice, PaymentRecord } from "@/types/payment";
 
 type PaymentsDashboardProps = {
   payments: PaymentRecord[];
+  bancaPayments: PaymentRecord[];
   enrolledByUf: Record<string, number>;
   dataNotice?: DashboardDataNotice;
   enrolledUnavailable?: boolean;
@@ -57,6 +58,13 @@ const currency = new Intl.NumberFormat("pt-BR", {
   style: "currency",
   currency: "BRL",
   maximumFractionDigits: 0,
+});
+
+const currencyFine = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 function formatCurrency(value: unknown) {
@@ -104,8 +112,18 @@ const dataNoticeText: Record<DashboardDataNotice, string> = {
     "Falha ao ler as tabelas de pagamento no Supabase. Verifique nomes das tabelas, políticas RLS e a chave anon. Nenhum valor de demonstração é exibido.",
 };
 
+type UfBarSort = "uf-asc" | "amount-asc" | "amount-desc";
+type UnitChartSort =
+  | "spent-asc"
+  | "spent-desc"
+  | "enrolled-asc"
+  | "enrolled-desc"
+  | "unit-asc"
+  | "unit-desc";
+
 export function PaymentsDashboard({
   payments,
+  bancaPayments,
   enrolledByUf,
   dataNotice,
   enrolledUnavailable,
@@ -115,13 +133,16 @@ export function PaymentsDashboard({
   const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
   const [selectedYear, setSelectedYear] = useState<"both" | "2025" | "2026">("both");
   const [selectedSource, setSelectedSource] = useState<"all" | "coord" | "uf">("all");
+  const [ufBarSort, setUfBarSort] = useState<UfBarSort>("uf-asc");
+  const [unitChartSort, setUnitChartSort] = useState<UnitChartSort>("unit-desc");
   const isClient = typeof window !== "undefined";
 
-  const monthsInData = useMemo(
-    () =>
-      [...new Set(payments.map((payment) => payment.reference_month.slice(0, 7)))].sort(),
-    [payments],
-  );
+  const monthsInData = useMemo(() => {
+    const keys = new Set<string>();
+    payments.forEach((p) => keys.add(p.reference_month.slice(0, 7)));
+    bancaPayments.forEach((p) => keys.add(p.reference_month.slice(0, 7)));
+    return [...keys].sort();
+  }, [payments, bancaPayments]);
 
   const yearCalendars = useMemo(() => {
     const years =
@@ -147,6 +168,20 @@ export function PaymentsDashboard({
     });
   }, [payments, selectedMonths, selectedSource, selectedUfs, selectedYear]);
 
+  const filteredBancaPayments = useMemo(() => {
+    return bancaPayments.filter((payment) => {
+      const month = payment.reference_month.slice(0, 7);
+      const year = payment.reference_month.slice(0, 4);
+      if (selectedYear === "2025" && year !== "2025") return false;
+      if (selectedYear === "2026" && year !== "2026") return false;
+      if (selectedYear === "both" && year !== "2025" && year !== "2026") return false;
+      const matchMonth =
+        selectedMonths.length === 0 || selectedMonths.includes(month);
+      const matchUf = selectedUfs.length === 0 || selectedUfs.includes(payment.uf);
+      return matchMonth && matchUf;
+    });
+  }, [bancaPayments, selectedMonths, selectedUfs, selectedYear]);
+
   const totalValue = filteredPayments.reduce((acc, item) => acc + item.amount, 0);
   const totalRecords = filteredPayments.length;
   const avgValue = totalRecords > 0 ? totalValue / totalRecords : 0;
@@ -169,6 +204,83 @@ export function PaymentsDashboard({
     });
     return displayUfs.map((uf) => ({ uf, amount: grouped.get(uf) ?? 0 }));
   }, [filteredPayments, selectedUfs]);
+
+  const totalsByUfBarChartSorted = useMemo(() => {
+    const rows = [...totalsByUfBarChart];
+    switch (ufBarSort) {
+      case "uf-asc":
+        rows.sort((a, b) => a.uf.localeCompare(b.uf));
+        break;
+      case "amount-asc":
+        rows.sort((a, b) => a.amount - b.amount);
+        break;
+      case "amount-desc":
+        rows.sort((a, b) => b.amount - a.amount);
+        break;
+      default:
+        break;
+    }
+    return rows;
+  }, [totalsByUfBarChart, ufBarSort]);
+
+  const totalsByUfBancaBar = useMemo(() => {
+    const displayUfs =
+      selectedUfs.length > 0
+        ? [...selectedUfs].sort((a, b) => a.localeCompare(b))
+        : [...ALL_UFS];
+    const grouped = new Map<string, number>();
+    displayUfs.forEach((uf) => grouped.set(uf, 0));
+    filteredBancaPayments.forEach((item) => {
+      if (!grouped.has(item.uf)) return;
+      grouped.set(item.uf, (grouped.get(item.uf) ?? 0) + item.amount);
+    });
+    return displayUfs.map((uf) => ({ uf, amount: grouped.get(uf) ?? 0 }));
+  }, [filteredBancaPayments, selectedUfs]);
+
+  const unitPerUfRows = useMemo(() => {
+    const displayUfs =
+      selectedUfs.length > 0
+        ? [...selectedUfs].sort((a, b) => a.localeCompare(b))
+        : [...ALL_UFS];
+    const spentMap = new Map<string, number>();
+    filteredPayments.forEach((item) => {
+      spentMap.set(item.uf, (spentMap.get(item.uf) ?? 0) + item.amount);
+    });
+    return displayUfs.map((uf) => {
+      const spent = spentMap.get(uf) ?? 0;
+      const enrolled = enrolledByUf[uf] ?? 0;
+      const unit = enrolled > 0 ? spent / enrolled : null;
+      return { uf, spent, enrolled, unit };
+    });
+  }, [filteredPayments, selectedUfs, enrolledByUf]);
+
+  const unitChartDataSorted = useMemo(() => {
+    const rows = [...unitPerUfRows];
+    const nullLast = (u: number | null) => (u == null || Number.isNaN(u) ? Number.POSITIVE_INFINITY : u);
+    switch (unitChartSort) {
+      case "spent-asc":
+        rows.sort((a, b) => a.spent - b.spent);
+        break;
+      case "spent-desc":
+        rows.sort((a, b) => b.spent - a.spent);
+        break;
+      case "enrolled-asc":
+        rows.sort((a, b) => a.enrolled - b.enrolled);
+        break;
+      case "enrolled-desc":
+        rows.sort((a, b) => b.enrolled - a.enrolled);
+        break;
+      case "unit-asc":
+        rows.sort((a, b) => nullLast(a.unit) - nullLast(b.unit));
+        break;
+      case "unit-desc":
+        rows.sort((a, b) => nullLast(b.unit) - nullLast(a.unit));
+        break;
+      default:
+        break;
+    }
+    return rows;
+  }, [unitPerUfRows, unitChartSort]);
 
   const totalsByMonth = (() => {
     const grouped = new Map<string, number>();
@@ -236,10 +348,37 @@ export function PaymentsDashboard({
               : undefined
           }
         >
-          <p className="text-sm text-slate-500">Qtd. inscritos (UF)</p>
+          <p className="text-sm text-slate-500">Qtd. inscritos (total UF)</p>
           <p className="mt-1 text-2xl font-semibold text-slate-900">
-            {enrolledUnavailable ? "—" : totalEnrolled}
+            {enrolledUnavailable ? "—" : totalEnrolled.toLocaleString("pt-BR")}
           </p>
+          {!enrolledUnavailable && (
+            <details className="mt-3 group">
+              <summary className="cursor-pointer list-none text-xs font-medium text-blue-700 underline decoration-blue-300 hover:text-blue-900 [&::-webkit-details-marker]:hidden">
+                Ver quantidade por UF
+              </summary>
+              <div className="mt-2 max-h-48 overflow-y-auto rounded border border-slate-200 bg-white text-xs">
+                <table className="w-full border-collapse text-left">
+                  <thead className="sticky top-0 bg-slate-100 text-slate-600">
+                    <tr>
+                      <th className="px-2 py-1.5 font-medium">UF</th>
+                      <th className="px-2 py-1.5 font-medium text-right">Inscritos</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ALL_UFS.map((uf) => (
+                      <tr key={uf} className="border-t border-slate-100">
+                        <td className="px-2 py-1 font-mono">{uf}</td>
+                        <td className="px-2 py-1 text-right tabular-nums">
+                          {(enrolledByUf[uf] ?? 0).toLocaleString("pt-BR")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
         </article>
       </div>
 
@@ -385,10 +524,26 @@ export function PaymentsDashboard({
           </div>
         </div>
 
-        <div className="mt-6 h-[min(28rem,70vh)] w-full min-h-[20rem]">
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-medium text-slate-700">Ordenação das barras</p>
+          <select
+            className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm sm:w-auto"
+            value={ufBarSort}
+            onChange={(e) => setUfBarSort(e.target.value as UfBarSort)}
+          >
+            <option value="uf-asc">UF (A–Z)</option>
+            <option value="amount-asc">Valor total (crescente)</option>
+            <option value="amount-desc">Valor total (decrescente)</option>
+          </select>
+        </div>
+
+        <div className="mt-4 h-[min(28rem,70vh)] w-full min-h-[20rem]">
           {isClient && (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={totalsByUfBarChart} margin={{ bottom: 8, left: 4, right: 8, top: 8 }}>
+              <BarChart
+                data={totalsByUfBarChartSorted}
+                margin={{ bottom: 8, left: 4, right: 8, top: 8 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="uf" interval={0} tick={{ fontSize: 10 }} height={36} />
                 <YAxis tickFormatter={formatCurrency} width={72} />
@@ -399,10 +554,128 @@ export function PaymentsDashboard({
                   name="Total"
                   minPointSize={3}
                 >
-                  {totalsByUfBarChart.map((entry) => (
+                  {totalsByUfBarChartSorted.map((entry) => (
                     <Cell
                       key={entry.uf}
                       fill={entry.amount > 0 ? "#2563eb" : "#e2e8f0"}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </article>
+
+      <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
+        <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Gasto por inscrito (UF)</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Valor total filtrado (Coord + UF) ÷ quantidade de inscritos por UF. Sem inscritos: barra
+              zerada.
+              {enrolledUnavailable && (
+                <span className="mt-1 block text-amber-800">
+                  Inscritos indisponíveis — este gráfico não reflete R$/inscrito até a tabela{" "}
+                  <code className="rounded bg-amber-100 px-1">qtd_inscrit_uf</code> ser lida.
+                </span>
+              )}
+            </p>
+          </div>
+          <select
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm sm:max-w-md"
+            value={unitChartSort}
+            onChange={(e) => setUnitChartSort(e.target.value as UnitChartSort)}
+          >
+            <option value="spent-asc">Ordenar: gasto total (crescente)</option>
+            <option value="spent-desc">Ordenar: gasto total (decrescente)</option>
+            <option value="enrolled-asc">Ordenar: inscritos (crescente)</option>
+            <option value="enrolled-desc">Ordenar: inscritos (decrescente)</option>
+            <option value="unit-asc">Ordenar: R$ / inscrito (crescente)</option>
+            <option value="unit-desc">Ordenar: R$ / inscrito (decrescente)</option>
+          </select>
+        </div>
+        <div className="h-[min(26rem,65vh)] w-full min-h-[18rem]">
+          {isClient && (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={unitChartDataSorted.map((r) => ({
+                  ...r,
+                  unitBar: r.unit ?? 0,
+                }))}
+                margin={{ bottom: 8, left: 4, right: 8, top: 8 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="uf" interval={0} tick={{ fontSize: 10 }} height={36} />
+                <YAxis tickFormatter={(v) => currencyFine.format(v)} width={80} />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.[0]) return null;
+                    const p = payload[0].payload as {
+                      uf: string;
+                      spent: number;
+                      enrolled: number;
+                      unit: number | null;
+                    };
+                    return (
+                      <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
+                        <p className="font-semibold text-slate-900">{p.uf}</p>
+                        {p.enrolled === 0 ? (
+                          <p className="mt-1 text-slate-600">Sem inscritos — não há R$/inscrito.</p>
+                        ) : (
+                          <div className="mt-1 space-y-0.5 text-slate-700">
+                            <p>
+                              <span className="text-slate-500">Por inscrito:</span>{" "}
+                              {currencyFine.format(p.unit ?? 0)}
+                            </p>
+                            <p className="text-slate-500">
+                              Total: {currency.format(p.spent)} ÷ {p.enrolled} inscritos
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }}
+                />
+                <Bar dataKey="unitBar" name="R$ / inscrito" radius={[6, 6, 0, 0]} minPointSize={2}>
+                  {unitChartDataSorted.map((entry) => (
+                    <Cell
+                      key={entry.uf}
+                      fill={
+                        entry.enrolled === 0
+                          ? "#e2e8f0"
+                          : entry.unit != null && entry.unit > 0
+                            ? "#7c3aed"
+                            : "#e2e8f0"
+                      }
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </article>
+
+      <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
+        <h2 className="mb-2 text-lg font-semibold text-slate-900">Pagamento à banca examinadora (31º CPR)</h2>
+        <p className="mb-4 text-sm text-slate-600">
+          Valores da tabela <code className="rounded bg-slate-100 px-1">pgto_banca</code>, com os mesmos
+          filtros de ano, mês e UF acima.
+        </p>
+        <div className="h-[min(24rem,60vh)] w-full min-h-[16rem]">
+          {isClient && (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={totalsByUfBancaBar} margin={{ bottom: 8, left: 4, right: 8, top: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="uf" interval={0} tick={{ fontSize: 10 }} height={36} />
+                <YAxis tickFormatter={formatCurrency} width={72} />
+                <Tooltip formatter={formatCurrency} />
+                <Bar dataKey="amount" name="Banca" radius={[6, 6, 0, 0]} minPointSize={3}>
+                  {totalsByUfBancaBar.map((entry) => (
+                    <Cell
+                      key={entry.uf}
+                      fill={entry.amount > 0 ? "#0d9488" : "#e2e8f0"}
                     />
                   ))}
                 </Bar>

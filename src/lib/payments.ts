@@ -91,7 +91,7 @@ function getUfFromRow(row: Record<string, unknown>): string {
   return typeof fallback === "string" ? fallback.trim().toUpperCase() : "";
 }
 
-function normalizeTableRows(rows: Array<Record<string, unknown>>, source: "coord" | "uf") {
+function normalizeTableRows(rows: Array<Record<string, unknown>>, source: "coord" | "uf" | "banca") {
   const nowIso = new Date().toISOString();
   const records: PaymentRecord[] = [];
 
@@ -128,6 +128,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   if (!supabase) {
     return {
       payments: [],
+      bancaPayments: [],
       enrolledByUf: {},
       dataNotice: "missing_supabase",
     };
@@ -141,12 +142,24 @@ export async function getDashboardData(): Promise<DashboardData> {
       console.error(`Erro ao buscar tabela ${sourceTable.table}:`, error.message);
       return {
         payments: [],
+        bancaPayments: [],
         enrolledByUf: {},
         dataNotice: "supabase_fetch_error",
       };
     }
 
     payments.push(...normalizeTableRows((data ?? []) as Array<Record<string, unknown>>, sourceTable.source));
+  }
+
+  let bancaPayments: PaymentRecord[] = [];
+  const bancaResult = await supabase.from("pgto_banca").select("*");
+  if (bancaResult.error) {
+    console.error("Erro ao buscar tabela pgto_banca:", bancaResult.error.message);
+  } else {
+    bancaPayments = normalizeTableRows(
+      (bancaResult.data ?? []) as Array<Record<string, unknown>>,
+      "banca",
+    );
   }
 
   const { data: enrolledRows, error: enrolledError } = await supabase
@@ -157,6 +170,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     console.error("Erro ao buscar tabela qtd_inscrit_uf:", enrolledError.message);
     return {
       payments: payments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
+      bancaPayments: bancaPayments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
       enrolledByUf: {},
       enrolledUnavailable: true,
     };
@@ -173,6 +187,7 @@ export async function getDashboardData(): Promise<DashboardData> {
 
   return {
     payments: payments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
+    bancaPayments: bancaPayments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
     enrolledByUf,
   };
 }
