@@ -133,7 +133,7 @@ export function PaymentsDashboard({
   const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
   const [selectedYear, setSelectedYear] = useState<"both" | "2025" | "2026">("both");
   const [selectedSource, setSelectedSource] = useState<"all" | "coord" | "uf">("all");
-  const [ufBarSort, setUfBarSort] = useState<UfBarSort>("uf-asc");
+  const [ufBarSort, setUfBarSort] = useState<UfBarSort>("amount-asc");
   const [unitChartSort, setUnitChartSort] = useState<UnitChartSort>("unit-desc");
   const isClient = typeof window !== "undefined";
 
