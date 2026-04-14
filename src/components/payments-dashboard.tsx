@@ -185,7 +185,11 @@ export function PaymentsDashboard({
     const rows = [...filteredBancaRows];
     switch (bancaSort) {
       case "chrono":
-        rows.sort((a, b) => a.ano - b.ano || a.atv.localeCompare(b.atv));
+        rows.sort((a, b) => {
+          const aOrder = a.ordem ?? Number.POSITIVE_INFINITY;
+          const bOrder = b.ordem ?? Number.POSITIVE_INFINITY;
+          return aOrder - bOrder || a.ano - b.ano || a.atv.localeCompare(b.atv);
+        });
         break;
       case "amount-asc":
         rows.sort((a, b) => a.amount - b.amount);

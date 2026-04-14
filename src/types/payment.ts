@@ -7,12 +7,13 @@ export type PaymentRecord = {
   source: "coord" | "uf";
 };
 
-/** Linhas da tabela `pgto_banca` (atividade, valor, ano). */
+/** Linhas da tabela `pgto_banca` (atividade, valor, ano, ordem). */
 export type BancaPaymentRecord = {
   id: string;
   atv: string;
   ano: number;
   amount: number;
+  ordem: number | null;
 };
 
 export type DashboardDataNotice = "missing_supabase" | "supabase_fetch_error";

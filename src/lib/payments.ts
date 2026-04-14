@@ -154,7 +154,24 @@ function parseAno(value: unknown): number | null {
   return null;
 }
 
-/** Tabela `pgto_banca`: colunas `atv` (PK), `valor` (varchar), `ano` (numeric). */
+function parsePositiveInt(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const n = Math.floor(value);
+    return n > 0 ? n : null;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed.replace(/\./g, "").replace(",", "."));
+    if (Number.isFinite(n)) {
+      const parsed = Math.floor(n);
+      return parsed > 0 ? parsed : null;
+    }
+  }
+  return null;
+}
+
+/** Tabela `pgto_banca`: colunas `atv` (PK), `valor` (varchar), `ano` (numeric), `ordem` (numeric). */
 function normalizeBancaRows(rows: Array<Record<string, unknown>>): BancaPaymentRecord[] {
   const records: BancaPaymentRecord[] = [];
 
@@ -169,6 +186,7 @@ function normalizeBancaRows(rows: Array<Record<string, unknown>>): BancaPaymentR
     const valorRaw = row.valor ?? row.Valor;
     const amount = toNumericValue(valorRaw);
     if (amount <= 0) return;
+    const ordem = parsePositiveInt(row.ordem ?? row.Ordem);
 
     const safeId = `${i}-${atv.slice(0, 24).replace(/\s+/g, "-")}`;
     records.push({
@@ -176,6 +194,7 @@ function normalizeBancaRows(rows: Array<Record<string, unknown>>): BancaPaymentR
       atv,
       ano,
       amount,
+      ordem,
     });
   });
 
