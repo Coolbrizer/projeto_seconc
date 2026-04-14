@@ -422,7 +422,7 @@ export function PaymentsDashboard({
             <div>
               <p className="mb-2 text-sm font-medium text-slate-700">Ano</p>
               <select
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-black"
                 value={selectedYear}
                 onChange={(event) => {
                   setSelectedYear(event.target.value as "both" | "2025" | "2026");
@@ -437,7 +437,7 @@ export function PaymentsDashboard({
             <div>
               <p className="mb-2 text-sm font-medium text-slate-700">Origem dos pagamentos</p>
               <select
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-black"
                 value={selectedSource}
                 onChange={(event) =>
                   setSelectedSource(event.target.value as "all" | "coord" | "uf")
@@ -550,7 +550,7 @@ export function PaymentsDashboard({
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm font-medium text-slate-700">Ordenação das barras</p>
           <select
-            className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm sm:w-auto"
+            className="w-full max-w-xs rounded-md border border-slate-300 px-3 py-2 text-sm text-black sm:w-auto"
             value={ufBarSort}
             onChange={(e) => setUfBarSort(e.target.value as UfBarSort)}
           >
@@ -562,14 +562,14 @@ export function PaymentsDashboard({
 
         <div className="mt-4 h-[min(28rem,70vh)] w-full min-h-[20rem]">
           {isClient && (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="98%" height="100%">
               <BarChart
                 data={totalsByUfBarChartSorted}
-                margin={{ bottom: 8, left: 4, right: 8, top: 8 }}
+                margin={{ bottom: 8, left: 20, right: 8, top: 8 }}
               >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="uf" interval={0} tick={{ fontSize: 10 }} height={36} />
-                <YAxis tickFormatter={formatCurrency} width={72} />
+                <YAxis tickFormatter={formatCurrency} width={84} />
                 <Tooltip formatter={formatCurrency} />
                 <Bar
                   dataKey="amount"
@@ -606,7 +606,7 @@ export function PaymentsDashboard({
             </p>
           </div>
           <select
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm sm:max-w-md"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-black sm:max-w-md"
             value={unitChartSort}
             onChange={(e) => setUnitChartSort(e.target.value as UnitChartSort)}
           >
@@ -620,17 +620,17 @@ export function PaymentsDashboard({
         </div>
         <div className="h-[min(26rem,65vh)] w-full min-h-[18rem]">
           {isClient && (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="98%" height="100%">
               <BarChart
                 data={unitChartDataSorted.map((r) => ({
                   ...r,
                   unitBar: r.unit ?? 0,
                 }))}
-                margin={{ bottom: 8, left: 4, right: 8, top: 8 }}
+                margin={{ bottom: 8, left: 20, right: 8, top: 8 }}
               >
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="uf" interval={0} tick={{ fontSize: 10 }} height={36} />
-                <YAxis tickFormatter={(v) => currencyFine.format(v)} width={80} />
+                <YAxis tickFormatter={(v) => currencyFine.format(v)} width={90} />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (!active || !payload?.[0]) return null;
@@ -690,7 +690,7 @@ export function PaymentsDashboard({
           <div>
             <p className="mb-2 text-sm font-medium text-slate-700">Período da banca</p>
             <select
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-black"
               value={bancaYearFilter}
               onChange={(event) => setBancaYearFilter(event.target.value as BancaYearFilter)}
             >
@@ -702,7 +702,7 @@ export function PaymentsDashboard({
           <div>
             <p className="mb-2 text-sm font-medium text-slate-700">Ordenação</p>
             <select
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-black"
               value={bancaSort}
               onChange={(event) => setBancaSort(event.target.value as BancaSort)}
             >
@@ -734,10 +734,10 @@ export function PaymentsDashboard({
         </div>
         <div className="h-[min(28rem,70vh)] w-full min-h-[20rem]">
           {isClient && bancaChartData.length > 0 && (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="98%" height="100%">
               <BarChart
                 data={bancaChartData}
-                margin={{ left: 4, right: 12, top: 8, bottom: 100 }}
+                margin={{ left: 20, right: 12, top: 8, bottom: 100 }}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis
@@ -749,7 +749,7 @@ export function PaymentsDashboard({
                   height={100}
                   tick={{ fontSize: 9 }}
                 />
-                <YAxis tickFormatter={(v) => formatCurrency(v)} width={72} />
+                <YAxis tickFormatter={(v) => formatCurrency(v)} width={84} />
                 <Tooltip
                   content={({ active, payload }) => {
                     if (!active || !payload?.[0]) return null;
@@ -779,11 +779,11 @@ export function PaymentsDashboard({
         <h2 className="mb-3 text-base font-semibold text-slate-900">Evolução mensal</h2>
         <div className="h-80">
           {isClient && (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={totalsByMonth}>
+            <ResponsiveContainer width="98%" height="100%">
+              <LineChart data={totalsByMonth} margin={{ left: 20, right: 8, top: 8, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" tickFormatter={monthLabel} />
-                <YAxis tickFormatter={formatCurrency} />
+                <YAxis tickFormatter={formatCurrency} width={84} />
                 <Tooltip
                   formatter={formatCurrency}
                   labelFormatter={(label) => monthLabel(label)}
