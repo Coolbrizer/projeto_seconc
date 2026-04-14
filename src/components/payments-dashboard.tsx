@@ -120,6 +120,8 @@ type UnitChartSort =
   | "enrolled-desc"
   | "unit-asc"
   | "unit-desc";
+type BancaYearFilter = "both" | "2025" | "2026";
+type BancaSort = "chrono" | "amount-asc" | "amount-desc";
 
 export function PaymentsDashboard({
   payments,
@@ -135,6 +137,8 @@ export function PaymentsDashboard({
   const [selectedSource, setSelectedSource] = useState<"all" | "coord" | "uf">("all");
   const [ufBarSort, setUfBarSort] = useState<UfBarSort>("amount-asc");
   const [unitChartSort, setUnitChartSort] = useState<UnitChartSort>("unit-desc");
+  const [bancaYearFilter, setBancaYearFilter] = useState<BancaYearFilter>("both");
+  const [bancaSort, setBancaSort] = useState<BancaSort>("chrono");
   const isClient = typeof window !== "undefined";
 
   const monthsInData = useMemo(
@@ -170,22 +174,33 @@ export function PaymentsDashboard({
   /** Banca: só filtro por ano (coluna `ano`); não há UF nem mês na tabela. */
   const filteredBancaRows = useMemo(() => {
     return bancaPayments.filter((row) => {
-      if (selectedYear === "2025" && row.ano !== 2025) return false;
-      if (selectedYear === "2026" && row.ano !== 2026) return false;
-      if (selectedYear === "both" && row.ano !== 2025 && row.ano !== 2026) return false;
+      if (bancaYearFilter === "2025" && row.ano !== 2025) return false;
+      if (bancaYearFilter === "2026" && row.ano !== 2026) return false;
+      if (bancaYearFilter === "both" && row.ano !== 2025 && row.ano !== 2026) return false;
       return true;
     });
-  }, [bancaPayments, selectedYear]);
+  }, [bancaPayments, bancaYearFilter]);
 
   const bancaChartData = useMemo(() => {
-    return [...filteredBancaRows]
-      .sort((a, b) => b.amount - a.amount)
-      .map((row) => ({
-        ...row,
-        atvLabel:
-          row.atv.length > 48 ? `${row.atv.slice(0, 46).trim()}…` : row.atv,
-      }));
-  }, [filteredBancaRows]);
+    const rows = [...filteredBancaRows];
+    switch (bancaSort) {
+      case "chrono":
+        rows.sort((a, b) => a.ano - b.ano || a.atv.localeCompare(b.atv));
+        break;
+      case "amount-asc":
+        rows.sort((a, b) => a.amount - b.amount);
+        break;
+      case "amount-desc":
+        rows.sort((a, b) => b.amount - a.amount);
+        break;
+      default:
+        break;
+    }
+    return rows.map((row) => ({
+      ...row,
+      atvLabel: row.atv.length > 48 ? `${row.atv.slice(0, 46).trim()}…` : row.atv,
+    }));
+  }, [filteredBancaRows, bancaSort]);
 
   /** Somatórios da tabela pgto_banca (independente do filtro de ano do gráfico). */
   const bancaTotalsSummary = useMemo(() => {
@@ -665,9 +680,34 @@ export function PaymentsDashboard({
         <h2 className="mb-2 text-lg font-semibold text-slate-900">Pagamento à banca examinadora (31º CPR)</h2>
         <p className="mb-4 text-sm text-slate-600">
           Dados da tabela <code className="rounded bg-slate-100 px-1">pgto_banca</code> (atividade, valor,
-          ano). Use o filtro <strong>Ano</strong> acima (2025, 2026 ou ambos). Filtros de mês e UF não se
-          aplicam a esta tabela.
+          ano). Os filtros abaixo são exclusivos deste gráfico.
         </p>
+        <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div>
+            <p className="mb-2 text-sm font-medium text-slate-700">Período da banca</p>
+            <select
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              value={bancaYearFilter}
+              onChange={(event) => setBancaYearFilter(event.target.value as BancaYearFilter)}
+            >
+              <option value="both">2025 + 2026 (somatório)</option>
+              <option value="2025">Somente 2025</option>
+              <option value="2026">Somente 2026</option>
+            </select>
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-medium text-slate-700">Ordenação</p>
+            <select
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              value={bancaSort}
+              onChange={(event) => setBancaSort(event.target.value as BancaSort)}
+            >
+              <option value="chrono">Cronológica (2025 → 2026)</option>
+              <option value="amount-asc">Valor (crescente)</option>
+              <option value="amount-desc">Valor (decrescente)</option>
+            </select>
+          </div>
+        </div>
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <article className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total</p>
