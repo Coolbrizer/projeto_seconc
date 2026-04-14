@@ -134,7 +134,6 @@ export function PaymentsDashboard({
   /** Vazio = todos os meses do período de ano selecionado. */
   const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
   const [selectedYear, setSelectedYear] = useState<"both" | "2025" | "2026">("both");
-  const [selectedSource, setSelectedSource] = useState<"all" | "coord" | "uf">("all");
   const [ufBarSort, setUfBarSort] = useState<UfBarSort>("amount-asc");
   const [unitChartSort, setUnitChartSort] = useState<UnitChartSort>("unit-desc");
   const [bancaYearFilter, setBancaYearFilter] = useState<BancaYearFilter>("both");
@@ -166,10 +165,19 @@ export function PaymentsDashboard({
       const matchMonth =
         selectedMonths.length === 0 || selectedMonths.includes(month);
       const matchUf = selectedUfs.length === 0 || selectedUfs.includes(payment.uf);
-      const matchSource = selectedSource === "all" || payment.source === selectedSource;
-      return matchMonth && matchUf && matchSource;
+      return matchMonth && matchUf;
     });
-  }, [payments, selectedMonths, selectedSource, selectedUfs, selectedYear]);
+  }, [payments, selectedMonths, selectedUfs, selectedYear]);
+
+  const ufOnlyFilteredPayments = useMemo(
+    () => filteredPayments.filter((payment) => payment.source === "uf"),
+    [filteredPayments],
+  );
+
+  const coordOnlyFilteredPayments = useMemo(
+    () => filteredPayments.filter((payment) => payment.source === "coord"),
+    [filteredPayments],
+  );
 
   /** Banca: só filtro por ano (coluna `ano`); não há UF nem mês na tabela. */
   const filteredBancaRows = useMemo(() => {
@@ -235,12 +243,12 @@ export function PaymentsDashboard({
         : [...ALL_UFS];
     const grouped = new Map<string, number>();
     displayUfs.forEach((uf) => grouped.set(uf, 0));
-    filteredPayments.forEach((item) => {
+    ufOnlyFilteredPayments.forEach((item) => {
       if (!grouped.has(item.uf)) return;
       grouped.set(item.uf, (grouped.get(item.uf) ?? 0) + item.amount);
     });
     return displayUfs.map((uf) => ({ uf, amount: grouped.get(uf) ?? 0 }));
-  }, [filteredPayments, selectedUfs]);
+  }, [selectedUfs, ufOnlyFilteredPayments]);
 
   const totalsByUfBarChartSorted = useMemo(() => {
     const rows = [...totalsByUfBarChart];
@@ -315,6 +323,17 @@ export function PaymentsDashboard({
       .map(([month, amount]) => ({ month, amount }))
       .sort((a, b) => a.month.localeCompare(b.month));
   })();
+
+  const coordTotalsByMonth = useMemo(() => {
+    const grouped = new Map<string, number>();
+    coordOnlyFilteredPayments.forEach((item) => {
+      const month = item.reference_month.slice(0, 7);
+      grouped.set(month, (grouped.get(month) ?? 0) + item.amount);
+    });
+    return Array.from(grouped.entries())
+      .map(([month, amount]) => ({ month, amount }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+  }, [coordOnlyFilteredPayments]);
 
   function toggleUf(uf: string) {
     setSelectedUfs((current) =>
@@ -410,7 +429,9 @@ export function PaymentsDashboard({
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Gastos por UF</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Somatório por UF conforme filtros ({yearFilterLabel}
+              Somatório por UF considerando somente pagamentos das tabelas{" "}
+              <code className="rounded bg-slate-100 px-1">pgto_uf_2025</code> e{" "}
+              <code className="rounded bg-slate-100 px-1">pgto_uf_2026</code> ({yearFilterLabel}
               {selectedMonths.length > 0 ? ` · ${selectedMonths.length} mês(es)` : " · todos os meses"}).
               UFs sem lançamento no período aparecem com total R$ 0 (barra cinza).
             </p>
@@ -418,7 +439,7 @@ export function PaymentsDashboard({
         </div>
 
         <div className="flex flex-col gap-5">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4">
             <div>
               <p className="mb-2 text-sm font-medium text-slate-700">Ano</p>
               <select
@@ -432,20 +453,6 @@ export function PaymentsDashboard({
                 <option value="both">2025 + 2026 (somatório geral)</option>
                 <option value="2025">Apenas 2025</option>
                 <option value="2026">Apenas 2026</option>
-              </select>
-            </div>
-            <div>
-              <p className="mb-2 text-sm font-medium text-slate-700">Origem dos pagamentos</p>
-              <select
-                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-black"
-                value={selectedSource}
-                onChange={(event) =>
-                  setSelectedSource(event.target.value as "all" | "coord" | "uf")
-                }
-              >
-                <option value="all">Coord + UF</option>
-                <option value="coord">Somente coordenação</option>
-                <option value="uf">Somente UF</option>
               </select>
             </div>
           </div>
@@ -675,6 +682,32 @@ export function PaymentsDashboard({
                   ))}
                 </Bar>
               </BarChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </article>
+
+      <article className="rounded-xl bg-white p-4 shadow-sm">
+        <h2 className="mb-3 text-base font-semibold text-slate-900">Coordenação - evolução mensal</h2>
+        <p className="mb-3 text-sm text-slate-600">
+          Valores mensais exclusivos da Coordenação (tabelas{" "}
+          <code className="rounded bg-slate-100 px-1">pgto_coord_2025</code> e{" "}
+          <code className="rounded bg-slate-100 px-1">pgto_coord_2026</code>), respeitando os filtros de
+          ano, meses e UF.
+        </p>
+        <div className="h-80">
+          {isClient && (
+            <ResponsiveContainer width="98%" height="100%">
+              <LineChart data={coordTotalsByMonth} margin={{ left: 20, right: 8, top: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" tickFormatter={monthLabel} />
+                <YAxis tickFormatter={formatCurrency} width={84} />
+                <Tooltip
+                  formatter={formatCurrency}
+                  labelFormatter={(label) => monthLabel(label)}
+                />
+                <Line dataKey="amount" type="monotone" stroke="#2563eb" strokeWidth={3} />
+              </LineChart>
             </ResponsiveContainer>
           )}
         </div>
