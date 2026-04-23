@@ -581,7 +581,7 @@ export function PaymentsDashboard({
         <div className="h-80">
           {isClient && (
             <ResponsiveContainer width="98%" height="100%">
-              <LineChart data={coordTotalsByMonth} margin={{ left: 20, right: 8, top: 8, bottom: 8 }}>
+              <BarChart data={coordTotalsByMonth} margin={{ left: 20, right: 8, top: 8, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="month" tickFormatter={monthLabel} />
                 <YAxis tickFormatter={formatCurrency} width={84} />
@@ -589,8 +589,14 @@ export function PaymentsDashboard({
                   formatter={formatCurrency}
                   labelFormatter={(label) => monthLabel(label)}
                 />
-                <Line dataKey="amount" type="monotone" stroke="#2563eb" strokeWidth={3} />
-              </LineChart>
+                <Bar
+                  dataKey="amount"
+                  name="Coordenação"
+                  fill="#2563eb"
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={56}
+                />
+              </BarChart>
             </ResponsiveContainer>
           )}
         </div>
