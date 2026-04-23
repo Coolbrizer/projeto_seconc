@@ -19,6 +19,7 @@ export default async function Home() {
     bancaPayments,
     fiscalizacaoPayments,
     comissaoMedicaPayments,
+    execucaoPayments,
     enrolledByUf,
     dataNotice,
     enrolledUnavailable,
@@ -44,6 +45,7 @@ export default async function Home() {
         bancaPayments={bancaPayments}
         fiscalizacaoPayments={fiscalizacaoPayments}
         comissaoMedicaPayments={comissaoMedicaPayments}
+        execucaoPayments={execucaoPayments}
         enrolledByUf={enrolledByUf}
         dataNotice={dataNotice}
         enrolledUnavailable={enrolledUnavailable}

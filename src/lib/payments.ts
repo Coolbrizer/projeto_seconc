@@ -3,6 +3,7 @@ import type {
   BancaPaymentRecord,
   ComissaoMedicaPaymentRecord,
   DashboardData,
+  ExecucaoPaymentRecord,
   FiscalizacaoPaymentRecord,
   PaymentRecord,
 } from "@/types/payment";
@@ -255,6 +256,36 @@ function mesOrdemCalendario(mes: string): number {
   return map[n] ?? 99;
 }
 
+/** `pgto_execucao`: colunas `descricao`/`descrição` (text), `valor`, `data_pgto`/`ano` (ano int). */
+function normalizeExecucaoRows(rows: Array<Record<string, unknown>>): ExecucaoPaymentRecord[] {
+  const records: ExecucaoPaymentRecord[] = [];
+
+  rows.forEach((row, i) => {
+    const descRaw =
+      row.descricao ??
+      row.Descricao ??
+      row.DESCRICAO ??
+      row["descrição"] ??
+      row["Descrição"] ??
+      row.atividade;
+    const descricao = typeof descRaw === "string" ? descRaw.trim() : String(descRaw ?? "").trim();
+    if (!descricao) return;
+
+    const anoRaw = row.data_pgto ?? row.ano ?? row.Ano ?? row.DATA_PGTO ?? row["data_pagamento"];
+    const ano = parseAno(anoRaw);
+    if (ano == null || ano < 2000 || ano > 2100) return;
+
+    const valorRaw = row.valor ?? row.Valor;
+    const amount = toNumericValue(valorRaw);
+    if (amount <= 0) return;
+
+    const id = `execucao-${ano}-${descricao.slice(0, 32).replace(/\s+/g, "-")}-${i}`;
+    records.push({ id, descricao, ano, amount });
+  });
+
+  return records;
+}
+
 /** `pgto_comissao_medica`: colunas `mes`, `valor`, `ano`. */
 function normalizeComissaoMedicaRows(rows: Array<Record<string, unknown>>): ComissaoMedicaPaymentRecord[] {
   const records: ComissaoMedicaPaymentRecord[] = [];
@@ -308,6 +339,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       bancaPayments: [],
       fiscalizacaoPayments: [],
       comissaoMedicaPayments: [],
+      execucaoPayments: [],
       enrolledByUf: {},
       dataNotice: "missing_supabase",
     };
@@ -324,6 +356,7 @@ export async function getDashboardData(): Promise<DashboardData> {
         bancaPayments: [],
         fiscalizacaoPayments: [],
         comissaoMedicaPayments: [],
+        execucaoPayments: [],
         enrolledByUf: {},
         dataNotice: "supabase_fetch_error",
       };
@@ -365,6 +398,19 @@ export async function getDashboardData(): Promise<DashboardData> {
     );
   }
 
+  let execucaoPayments: ExecucaoPaymentRecord[] = [];
+  const execucaoResult = await supabase.from("pgto_execucao").select("*");
+  if (execucaoResult.error) {
+    console.error("Erro ao buscar tabela pgto_execucao:", execucaoResult.error.message);
+  } else {
+    execucaoPayments = normalizeExecucaoRows(
+      (execucaoResult.data ?? []) as Array<Record<string, unknown>>,
+    );
+    execucaoPayments.sort(
+      (a, b) => a.ano - b.ano || a.descricao.localeCompare(b.descricao, "pt-BR"),
+    );
+  }
+
   const { data: enrolledRows, error: enrolledError } = await supabase
     .from("qtd_inscrit_uf")
     .select("*");
@@ -376,6 +422,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       bancaPayments: bancaPayments.sort((a, b) => a.atv.localeCompare(b.atv)),
       fiscalizacaoPayments,
       comissaoMedicaPayments,
+      execucaoPayments,
       enrolledByUf: {},
       enrolledUnavailable: true,
     };
@@ -396,6 +443,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     bancaPayments: bancaPayments.sort((a, b) => a.atv.localeCompare(b.atv)),
     fiscalizacaoPayments,
     comissaoMedicaPayments,
+    execucaoPayments,
     enrolledByUf,
   };
 }

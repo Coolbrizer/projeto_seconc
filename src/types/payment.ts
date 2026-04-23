@@ -32,6 +32,14 @@ export type ComissaoMedicaPaymentRecord = {
   amount: number;
 };
 
+/** Tabela `pgto_execucao` (descrição, valor, ano). */
+export type ExecucaoPaymentRecord = {
+  id: string;
+  descricao: string;
+  ano: number;
+  amount: number;
+};
+
 export type DashboardDataNotice = "missing_supabase" | "supabase_fetch_error";
 
 export type DashboardData = {
@@ -42,6 +50,8 @@ export type DashboardData = {
   fiscalizacaoPayments: FiscalizacaoPaymentRecord[];
   /** Comissão médica / comissão especial de avaliação (`pgto_comissao_medica`). */
   comissaoMedicaPayments: ComissaoMedicaPaymentRecord[];
+  /** Execução do concurso (`pgto_execucao`). */
+  execucaoPayments: ExecucaoPaymentRecord[];
   enrolledByUf: Record<string, number>;
   /** Quando não há dados reais ou falhou leitura (evita confundir com demo). */
   dataNotice?: DashboardDataNotice;
