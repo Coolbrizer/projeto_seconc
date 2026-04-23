@@ -446,7 +446,9 @@ export function PaymentsDashboard({
       <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
         <div className="mb-4 flex flex-col gap-1 border-b border-slate-100 pb-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Gastos por UF</h2>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Pagamentos das Subcomissões Estaduais
+            </h2>
             <p className="mt-1 text-sm text-slate-600">
               Somatório por UF considerando somente pagamentos das tabelas{" "}
               <code className="rounded bg-slate-100 px-1">pgto_uf_2025</code> e{" "}
@@ -672,7 +674,8 @@ export function PaymentsDashboard({
         <h2 className="mb-2 text-lg font-semibold text-slate-900">Aplicação de Prova</h2>
         <p className="mb-4 text-sm text-slate-600">
           Valores da tabela <code className="rounded bg-slate-100 px-1">pgto_fiscalizacao</code> (tipo de
-          aplicação, valor, ano). O mesmo filtro <strong>Ano</strong> da seção &quot;Gastos por UF&quot; aplica-se
+          aplicação, valor, ano). O mesmo filtro <strong>Ano</strong> da seção &quot;Pagamentos das
+          Subcomissões Estaduais&quot; aplica-se
           aqui (2025, 2026 ou ambos).
         </p>
         <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
@@ -725,7 +728,8 @@ export function PaymentsDashboard({
         <h2 className="mb-2 text-lg font-semibold text-slate-900">Comissão Especial de Avaliação</h2>
         <p className="mb-4 text-sm text-slate-600">
           Valores da tabela <code className="rounded bg-slate-100 px-1">pgto_comissao_medica</code> (mês,
-          valor, ano). Usa o mesmo filtro <strong>Ano</strong> de &quot;Gastos por UF&quot;.
+          valor, ano). Usa o mesmo filtro <strong>Ano</strong> de &quot;Pagamentos das Subcomissões
+          Estaduais&quot;.
         </p>
         <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total no período filtrado</p>
