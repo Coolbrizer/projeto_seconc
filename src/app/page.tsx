@@ -14,8 +14,15 @@ async function logoutAction() {
 
 export default async function Home() {
   const user = await requireSessionUser();
-  const { payments, bancaPayments, enrolledByUf, dataNotice, enrolledUnavailable } =
-    await getDashboardData();
+  const {
+    payments,
+    bancaPayments,
+    fiscalizacaoPayments,
+    comissaoMedicaPayments,
+    enrolledByUf,
+    dataNotice,
+    enrolledUnavailable,
+  } = await getDashboardData();
 
   return (
     <div className="min-h-screen bg-slate-100 px-4 py-6 md:px-8 md:py-8">
@@ -35,6 +42,8 @@ export default async function Home() {
       <PaymentsDashboard
         payments={payments}
         bancaPayments={bancaPayments}
+        fiscalizacaoPayments={fiscalizacaoPayments}
+        comissaoMedicaPayments={comissaoMedicaPayments}
         enrolledByUf={enrolledByUf}
         dataNotice={dataNotice}
         enrolledUnavailable={enrolledUnavailable}

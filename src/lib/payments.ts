@@ -1,5 +1,11 @@
 import { getSupabase } from "@/lib/supabase";
-import type { BancaPaymentRecord, DashboardData, PaymentRecord } from "@/types/payment";
+import type {
+  BancaPaymentRecord,
+  ComissaoMedicaPaymentRecord,
+  DashboardData,
+  FiscalizacaoPaymentRecord,
+  PaymentRecord,
+} from "@/types/payment";
 
 const monthMap: Record<string, string> = {
   jan: "01",
@@ -201,6 +207,77 @@ function normalizeBancaRows(rows: Array<Record<string, unknown>>): BancaPaymentR
   return records;
 }
 
+/** `pgto_fiscalizacao`: colunas `Tipo`/`tipo`, `valor`, `ano`. */
+function normalizeFiscalizacaoRows(rows: Array<Record<string, unknown>>): FiscalizacaoPaymentRecord[] {
+  const records: FiscalizacaoPaymentRecord[] = [];
+
+  rows.forEach((row, i) => {
+    const tipoRaw = row.Tipo ?? row.tipo ?? row.TIPO ?? row.categoria ?? row.Categoria;
+    const tipo = typeof tipoRaw === "string" ? tipoRaw.trim() : String(tipoRaw ?? "").trim();
+    if (!tipo) return;
+
+    const ano = parseAno(row.ano ?? row.Ano);
+    if (ano == null || ano < 2000 || ano > 2100) return;
+
+    const valorRaw = row.valor ?? row.Valor;
+    const amount = toNumericValue(valorRaw);
+    if (amount <= 0) return;
+
+    const id = `fiscal-${ano}-${tipo.slice(0, 40).replace(/\s+/g, "-")}-${i}`;
+    records.push({ id, tipo, ano, amount });
+  });
+
+  return records;
+}
+
+function normalizeMesNome(mes: string): string {
+  return mes.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Ordem aproximada para rótulos de mês em português (com ou sem acento). */
+function mesOrdemCalendario(mes: string): number {
+  const n = normalizeMesNome(mes);
+  const map: Record<string, number> = {
+    janeiro: 1,
+    fevereiro: 2,
+    março: 3,
+    marco: 3,
+    abril: 4,
+    maio: 5,
+    junho: 6,
+    julho: 7,
+    agosto: 8,
+    setembro: 9,
+    outubro: 10,
+    novembro: 11,
+    dezembro: 12,
+  };
+  return map[n] ?? 99;
+}
+
+/** `pgto_comissao_medica`: colunas `mes`, `valor`, `ano`. */
+function normalizeComissaoMedicaRows(rows: Array<Record<string, unknown>>): ComissaoMedicaPaymentRecord[] {
+  const records: ComissaoMedicaPaymentRecord[] = [];
+
+  rows.forEach((row, i) => {
+    const mesRaw = row.mes ?? row.Mes ?? row.MES ?? row.mês ?? row.Mês;
+    const mes = typeof mesRaw === "string" ? mesRaw.trim() : String(mesRaw ?? "").trim();
+    if (!mes) return;
+
+    const ano = parseAno(row.ano ?? row.Ano);
+    if (ano == null || ano < 2000 || ano > 2100) return;
+
+    const valorRaw = row.valor ?? row.Valor;
+    const amount = toNumericValue(valorRaw);
+    if (amount <= 0) return;
+
+    const id = `comissao-${ano}-${normalizeMesNome(mes)}-${i}`;
+    records.push({ id, mes, ano, amount });
+  });
+
+  return records;
+}
+
 function getQtdInscritFromRow(row: Record<string, unknown>): number | null {
   const keys = [
     "qtd_inscrit",
@@ -229,6 +306,8 @@ export async function getDashboardData(): Promise<DashboardData> {
     return {
       payments: [],
       bancaPayments: [],
+      fiscalizacaoPayments: [],
+      comissaoMedicaPayments: [],
       enrolledByUf: {},
       dataNotice: "missing_supabase",
     };
@@ -243,6 +322,8 @@ export async function getDashboardData(): Promise<DashboardData> {
       return {
         payments: [],
         bancaPayments: [],
+        fiscalizacaoPayments: [],
+        comissaoMedicaPayments: [],
         enrolledByUf: {},
         dataNotice: "supabase_fetch_error",
       };
@@ -259,6 +340,31 @@ export async function getDashboardData(): Promise<DashboardData> {
     bancaPayments = normalizeBancaRows((bancaResult.data ?? []) as Array<Record<string, unknown>>);
   }
 
+  let fiscalizacaoPayments: FiscalizacaoPaymentRecord[] = [];
+  const fiscalResult = await supabase.from("pgto_fiscalizacao").select("*");
+  if (fiscalResult.error) {
+    console.error("Erro ao buscar tabela pgto_fiscalizacao:", fiscalResult.error.message);
+  } else {
+    fiscalizacaoPayments = normalizeFiscalizacaoRows(
+      (fiscalResult.data ?? []) as Array<Record<string, unknown>>,
+    );
+    fiscalizacaoPayments.sort((a, b) => a.ano - b.ano || a.tipo.localeCompare(b.tipo, "pt-BR"));
+  }
+
+  let comissaoMedicaPayments: ComissaoMedicaPaymentRecord[] = [];
+  const comissaoResult = await supabase.from("pgto_comissao_medica").select("*");
+  if (comissaoResult.error) {
+    console.error("Erro ao buscar tabela pgto_comissao_medica:", comissaoResult.error.message);
+  } else {
+    comissaoMedicaPayments = normalizeComissaoMedicaRows(
+      (comissaoResult.data ?? []) as Array<Record<string, unknown>>,
+    );
+    comissaoMedicaPayments.sort(
+      (a, b) =>
+        a.ano - b.ano || mesOrdemCalendario(a.mes) - mesOrdemCalendario(b.mes) || a.mes.localeCompare(b.mes, "pt-BR"),
+    );
+  }
+
   const { data: enrolledRows, error: enrolledError } = await supabase
     .from("qtd_inscrit_uf")
     .select("*");
@@ -268,6 +374,8 @@ export async function getDashboardData(): Promise<DashboardData> {
     return {
       payments: payments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
       bancaPayments: bancaPayments.sort((a, b) => a.atv.localeCompare(b.atv)),
+      fiscalizacaoPayments,
+      comissaoMedicaPayments,
       enrolledByUf: {},
       enrolledUnavailable: true,
     };
@@ -286,6 +394,8 @@ export async function getDashboardData(): Promise<DashboardData> {
   return {
     payments: payments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
     bancaPayments: bancaPayments.sort((a, b) => a.atv.localeCompare(b.atv)),
+    fiscalizacaoPayments,
+    comissaoMedicaPayments,
     enrolledByUf,
   };
 }

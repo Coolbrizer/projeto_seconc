@@ -13,11 +13,19 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { BancaPaymentRecord, DashboardDataNotice, PaymentRecord } from "@/types/payment";
+import type {
+  BancaPaymentRecord,
+  ComissaoMedicaPaymentRecord,
+  DashboardDataNotice,
+  FiscalizacaoPaymentRecord,
+  PaymentRecord,
+} from "@/types/payment";
 
 type PaymentsDashboardProps = {
   payments: PaymentRecord[];
   bancaPayments: BancaPaymentRecord[];
+  fiscalizacaoPayments: FiscalizacaoPaymentRecord[];
+  comissaoMedicaPayments: ComissaoMedicaPaymentRecord[];
   enrolledByUf: Record<string, number>;
   dataNotice?: DashboardDataNotice;
   enrolledUnavailable?: boolean;
@@ -84,6 +92,33 @@ function monthLabel(value: string) {
   return date.toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
 }
 
+/** Ordenação de rótulos de mês em português (comissão médica). */
+function mesCalendarioOrdem(mes: string): number {
+  const k = mes.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const order: Record<string, number> = {
+    janeiro: 1,
+    fevereiro: 2,
+    março: 3,
+    marco: 3,
+    abril: 4,
+    maio: 5,
+    junho: 6,
+    julho: 7,
+    agosto: 8,
+    setembro: 9,
+    outubro: 10,
+    novembro: 11,
+    dezembro: 12,
+  };
+  return order[k] ?? 100;
+}
+
+function matchesDashboardYear(ano: number, selectedYear: "both" | "2025" | "2026"): boolean {
+  if (selectedYear === "2025") return ano === 2025;
+  if (selectedYear === "2026") return ano === 2026;
+  return ano === 2025 || ano === 2026;
+}
+
 const dataNoticeText: Record<DashboardDataNotice, string> = {
   missing_supabase:
     "Não há conexão com o Supabase (variáveis NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY ausentes ou inválidas). O gráfico de valores usa apenas os lançamentos das tabelas pgto_* — configure o ambiente para ver os totais reais.",
@@ -105,6 +140,8 @@ type BancaSort = "chrono" | "amount-asc" | "amount-desc";
 export function PaymentsDashboard({
   payments,
   bancaPayments,
+  fiscalizacaoPayments,
+  comissaoMedicaPayments,
   enrolledByUf,
   dataNotice,
   enrolledUnavailable,
@@ -185,6 +222,35 @@ export function PaymentsDashboard({
     }
     return { total, total2025, total2026 };
   }, [bancaPayments]);
+
+  const fiscalChartRows = useMemo(() => {
+    const rows = fiscalizacaoPayments.filter((r) => matchesDashboardYear(r.ano, selectedYear));
+    rows.sort((a, b) => a.tipo.localeCompare(b.tipo, "pt-BR"));
+    return rows.map((r) => ({
+      ...r,
+      tipoLabel: r.tipo.length > 42 ? `${r.tipo.slice(0, 40).trim()}…` : r.tipo,
+    }));
+  }, [fiscalizacaoPayments, selectedYear]);
+
+  const fiscalTotalFiltered = useMemo(
+    () => fiscalChartRows.reduce((acc, r) => acc + r.amount, 0),
+    [fiscalChartRows],
+  );
+
+  const comissaoChartRows = useMemo(() => {
+    const rows = comissaoMedicaPayments.filter((r) => matchesDashboardYear(r.ano, selectedYear));
+    rows.sort(
+      (a, b) =>
+        mesCalendarioOrdem(a.mes) - mesCalendarioOrdem(b.mes) ||
+        a.mes.localeCompare(b.mes, "pt-BR"),
+    );
+    return rows;
+  }, [comissaoMedicaPayments, selectedYear]);
+
+  const comissaoTotalFiltered = useMemo(
+    () => comissaoChartRows.reduce((acc, r) => acc + r.amount, 0),
+    [comissaoChartRows],
+  );
 
   const totalValue = filteredPayments.reduce((acc, item) => acc + item.amount, 0);
   const totalRecords = filteredPayments.length;
@@ -598,6 +664,103 @@ export function PaymentsDashboard({
                 />
               </BarChart>
             </ResponsiveContainer>
+          )}
+        </div>
+      </article>
+
+      <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
+        <h2 className="mb-2 text-lg font-semibold text-slate-900">Aplicação de Prova</h2>
+        <p className="mb-4 text-sm text-slate-600">
+          Valores da tabela <code className="rounded bg-slate-100 px-1">pgto_fiscalizacao</code> (tipo de
+          aplicação, valor, ano). O mesmo filtro <strong>Ano</strong> da seção &quot;Gastos por UF&quot; aplica-se
+          aqui (2025, 2026 ou ambos).
+        </p>
+        <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total no período filtrado</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+            {formatCurrency(fiscalTotalFiltered)}
+          </p>
+        </div>
+        <div className="h-[min(22rem,55vh)] w-full min-h-[14rem]">
+          {isClient && fiscalChartRows.length > 0 && (
+            <ResponsiveContainer width="98%" height="100%">
+              <BarChart data={fiscalChartRows} margin={{ left: 12, right: 8, top: 8, bottom: 72 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="tipoLabel"
+                  type="category"
+                  interval={0}
+                  angle={-28}
+                  textAnchor="end"
+                  height={72}
+                  tick={{ fontSize: 11 }}
+                />
+                <YAxis tickFormatter={(v) => formatCurrency(v)} width={84} />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.[0]) return null;
+                    const p = payload[0].payload as FiscalizacaoPaymentRecord & { tipoLabel: string };
+                    return (
+                      <div className="max-w-sm rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
+                        <p className="font-medium text-slate-900">{p.tipo}</p>
+                        <p className="mt-1 text-sky-800">{formatCurrency(p.amount)}</p>
+                        <p className="text-slate-500">Ano: {p.ano}</p>
+                      </div>
+                    );
+                  }}
+                />
+                <Bar dataKey="amount" name="Valor" fill="#0369a1" radius={[6, 6, 0, 0]} maxBarSize={72} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+          {isClient && fiscalChartRows.length === 0 && (
+            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-500">
+              Nenhum registro para o ano selecionado ou tabela vazia / sem permissão de leitura.
+            </p>
+          )}
+        </div>
+      </article>
+
+      <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
+        <h2 className="mb-2 text-lg font-semibold text-slate-900">Comissão Especial de Avaliação</h2>
+        <p className="mb-4 text-sm text-slate-600">
+          Valores da tabela <code className="rounded bg-slate-100 px-1">pgto_comissao_medica</code> (mês,
+          valor, ano). Usa o mesmo filtro <strong>Ano</strong> de &quot;Gastos por UF&quot;.
+        </p>
+        <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total no período filtrado</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+            {formatCurrency(comissaoTotalFiltered)}
+          </p>
+        </div>
+        <div className="h-[min(22rem,55vh)] w-full min-h-[14rem]">
+          {isClient && comissaoChartRows.length > 0 && (
+            <ResponsiveContainer width="98%" height="100%">
+              <BarChart data={comissaoChartRows} margin={{ left: 12, right: 8, top: 8, bottom: 48 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="mes" interval={0} tick={{ fontSize: 11 }} height={48} />
+                <YAxis tickFormatter={(v) => formatCurrency(v)} width={84} />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.[0]) return null;
+                    const p = payload[0].payload as ComissaoMedicaPaymentRecord;
+                    return (
+                      <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
+                        <p className="font-medium capitalize text-slate-900">{p.mes}</p>
+                        <p className="mt-1 text-orange-900">{formatCurrency(p.amount)}</p>
+                        <p className="text-slate-500">Ano: {p.ano}</p>
+                      </div>
+                    );
+                  }}
+                />
+                <Bar dataKey="amount" name="Valor" fill="#c2410c" radius={[6, 6, 0, 0]} maxBarSize={56} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+          {isClient && comissaoChartRows.length === 0 && (
+            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-500">
+              Nenhum registro para o ano selecionado ou tabela vazia / sem permissão de leitura.
+            </p>
           )}
         </div>
       </article>
