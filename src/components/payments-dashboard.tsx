@@ -84,27 +84,6 @@ function monthLabel(value: string) {
   return date.toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
 }
 
-/** Só o mês (ex.: “jan.”), para chips compactos — o ano fica no título do bloco. */
-function monthShortLabel(value: string) {
-  const iso =
-    value.length === 7 && /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : value;
-  const date = new Date(`${iso}T00:00:00`);
-  return date.toLocaleDateString("pt-BR", { month: "short" });
-}
-
-/** Duas linhas por ano: jan–jun e jul–dez (6 meses por linha). */
-function monthsGridForYear(year: number): [string[], string[]] {
-  const row1: string[] = [];
-  const row2: string[] = [];
-  for (let m = 1; m <= 6; m++) {
-    row1.push(`${year}-${String(m).padStart(2, "0")}`);
-  }
-  for (let m = 7; m <= 12; m++) {
-    row2.push(`${year}-${String(m).padStart(2, "0")}`);
-  }
-  return [row1, row2];
-}
-
 const dataNoticeText: Record<DashboardDataNotice, string> = {
   missing_supabase:
     "Não há conexão com o Supabase (variáveis NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY ausentes ou inválidas). O gráfico de valores usa apenas os lançamentos das tabelas pgto_* — configure o ambiente para ver os totais reais.",
@@ -131,8 +110,6 @@ export function PaymentsDashboard({
   enrolledUnavailable,
 }: PaymentsDashboardProps) {
   const [selectedUfs, setSelectedUfs] = useState<string[]>([]);
-  /** Vazio = todos os meses do período de ano selecionado. */
-  const [selectedMonths, setSelectedMonths] = useState<string[]>([]);
   const [selectedYear, setSelectedYear] = useState<"both" | "2025" | "2026">("both");
   const [ufBarSort, setUfBarSort] = useState<UfBarSort>("amount-asc");
   const [unitChartSort, setUnitChartSort] = useState<UnitChartSort>("unit-desc");
@@ -140,34 +117,16 @@ export function PaymentsDashboard({
   const [bancaSort, setBancaSort] = useState<BancaSort>("chrono");
   const isClient = typeof window !== "undefined";
 
-  const monthsInData = useMemo(
-    () =>
-      [...new Set(payments.map((payment) => payment.reference_month.slice(0, 7)))].sort(),
-    [payments],
-  );
-
-  const yearCalendars = useMemo(() => {
-    const years =
-      selectedYear === "both" ? [2025, 2026] : selectedYear === "2025" ? [2025] : [2026];
-    return years.map((y) => {
-      const [rowA, rowB] = monthsGridForYear(y);
-      return { year: y, rows: [rowA, rowB] as const };
-    });
-  }, [selectedYear]);
-
   const filteredPayments = useMemo(() => {
     return payments.filter((payment) => {
-      const month = payment.reference_month.slice(0, 7);
       const year = payment.reference_month.slice(0, 4);
       if (selectedYear === "2025" && year !== "2025") return false;
       if (selectedYear === "2026" && year !== "2026") return false;
       if (selectedYear === "both" && year !== "2025" && year !== "2026") return false;
-      const matchMonth =
-        selectedMonths.length === 0 || selectedMonths.includes(month);
       const matchUf = selectedUfs.length === 0 || selectedUfs.includes(payment.uf);
-      return matchMonth && matchUf;
+      return matchUf;
     });
-  }, [payments, selectedMonths, selectedUfs, selectedYear]);
+  }, [payments, selectedUfs, selectedYear]);
 
   const ufOnlyFilteredPayments = useMemo(
     () => filteredPayments.filter((payment) => payment.source === "uf"),
@@ -341,12 +300,6 @@ export function PaymentsDashboard({
     );
   }
 
-  function toggleMonth(month: string) {
-    setSelectedMonths((current) =>
-      current.includes(month) ? current.filter((m) => m !== month) : [...current, month],
-    );
-  }
-
   const yearFilterLabel =
     selectedYear === "both" ? "2025 + 2026" : selectedYear === "2025" ? "Apenas 2025" : "Apenas 2026";
 
@@ -431,8 +384,8 @@ export function PaymentsDashboard({
             <p className="mt-1 text-sm text-slate-600">
               Somatório por UF considerando somente pagamentos das tabelas{" "}
               <code className="rounded bg-slate-100 px-1">pgto_uf_2025</code> e{" "}
-              <code className="rounded bg-slate-100 px-1">pgto_uf_2026</code> ({yearFilterLabel}
-              {selectedMonths.length > 0 ? ` · ${selectedMonths.length} mês(es)` : " · todos os meses"}).
+              <code className="rounded bg-slate-100 px-1">pgto_uf_2026</code> ({yearFilterLabel}; soma de
+              todos os meses do período).
               UFs sem lançamento no período aparecem com total R$ 0 (barra cinza).
             </p>
           </div>
@@ -447,82 +400,12 @@ export function PaymentsDashboard({
                 value={selectedYear}
                 onChange={(event) => {
                   setSelectedYear(event.target.value as "both" | "2025" | "2026");
-                  setSelectedMonths([]);
                 }}
               >
                 <option value="both">2025 + 2026 (somatório geral)</option>
                 <option value="2025">Apenas 2025</option>
                 <option value="2026">Apenas 2026</option>
               </select>
-            </div>
-          </div>
-
-          <div>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-medium text-slate-700">Meses (vazio = todos do período)</p>
-              {selectedMonths.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedMonths([])}
-                  className="text-xs font-medium text-blue-700 underline decoration-blue-400 hover:text-blue-900"
-                >
-                  Limpar meses
-                </button>
-              )}
-            </div>
-            <div className="rounded-lg border border-slate-100 bg-slate-50/40 p-2 sm:p-3">
-              <div
-                className={
-                  yearCalendars.length > 1
-                    ? "grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-3"
-                    : "grid grid-cols-1"
-                }
-              >
-                {yearCalendars.map(({ year, rows }) => (
-                  <div
-                    key={year}
-                    className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm sm:p-2.5"
-                  >
-                    <p className="mb-2 text-center text-xs font-semibold text-slate-800 sm:text-sm">
-                      {year}
-                    </p>
-                    <div className="flex flex-col gap-1.5">
-                      {rows.map((rowMonths) => (
-                        <div
-                          key={rowMonths[0]}
-                          className="grid grid-cols-6 gap-1"
-                        >
-                          {rowMonths.map((month) => {
-                            const active = selectedMonths.includes(month);
-                            const hasData = monthsInData.includes(month);
-                            return (
-                              <button
-                                key={month}
-                                type="button"
-                                title={
-                                  (hasData
-                                    ? "Há lançamentos — "
-                                    : "Sem lançamentos — ") + monthLabel(month)
-                                }
-                                onClick={() => toggleMonth(month)}
-                                className={`min-w-0 rounded-md border px-0.5 py-1.5 text-center text-[9px] leading-none transition sm:text-[10px] ${
-                                  active
-                                    ? "border-teal-600 bg-teal-600 text-white"
-                                    : hasData
-                                      ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
-                                      : "border-dashed border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
-                                }`}
-                              >
-                                {monthShortLabel(month)}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
 
@@ -693,7 +576,7 @@ export function PaymentsDashboard({
           Valores mensais exclusivos da Coordenação (tabelas{" "}
           <code className="rounded bg-slate-100 px-1">pgto_coord_2025</code> e{" "}
           <code className="rounded bg-slate-100 px-1">pgto_coord_2026</code>), respeitando os filtros de
-          ano, meses e UF.
+          ano e UF.
         </p>
         <div className="h-80">
           {isClient && (
