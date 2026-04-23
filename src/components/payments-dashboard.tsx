@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -152,7 +152,10 @@ export function PaymentsDashboard({
   const [unitChartSort, setUnitChartSort] = useState<UnitChartSort>("unit-desc");
   const [bancaYearFilter, setBancaYearFilter] = useState<BancaYearFilter>("both");
   const [bancaSort, setBancaSort] = useState<BancaSort>("chrono");
-  const isClient = typeof window !== "undefined";
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const filteredPayments = useMemo(() => {
     return payments.filter((payment) => {
@@ -253,11 +256,91 @@ export function PaymentsDashboard({
   );
 
   const totalValue = filteredPayments.reduce((acc, item) => acc + item.amount, 0);
-  const totalRecords = filteredPayments.length;
-  const avgValue = totalRecords > 0 ? totalValue / totalRecords : 0;
   const totalEnrolled = (selectedUfs.length === 0 ? [...ALL_UFS] : selectedUfs).reduce(
     (acc, uf) => acc + (enrolledByUf[uf] ?? 0),
     0,
+  );
+
+  /** Somatórios consolidados (todos os anos, todos os grupos) — não respeita filtros. */
+  const overviewTotals = useMemo(() => {
+    const sub = payments
+      .filter((p) => p.source === "uf")
+      .reduce((acc, p) => acc + p.amount, 0);
+    const coord = payments
+      .filter((p) => p.source === "coord")
+      .reduce((acc, p) => acc + p.amount, 0);
+    const banca = bancaPayments.reduce((acc, r) => acc + r.amount, 0);
+    const fiscal = fiscalizacaoPayments.reduce((acc, r) => acc + r.amount, 0);
+    const comissao = comissaoMedicaPayments.reduce((acc, r) => acc + r.amount, 0);
+    const grandTotal = sub + coord + banca + fiscal + comissao;
+    return { sub, coord, banca, fiscal, comissao, grandTotal };
+  }, [payments, bancaPayments, fiscalizacaoPayments, comissaoMedicaPayments]);
+
+  const overviewByYear = useMemo(() => {
+    const acc = new Map<number, number>();
+    const add = (ano: number, v: number) => acc.set(ano, (acc.get(ano) ?? 0) + v);
+    for (const p of payments) {
+      const y = Number(p.reference_month.slice(0, 4));
+      if (Number.isFinite(y)) add(y, p.amount);
+    }
+    for (const r of bancaPayments) add(r.ano, r.amount);
+    for (const r of fiscalizacaoPayments) add(r.ano, r.amount);
+    for (const r of comissaoMedicaPayments) add(r.ano, r.amount);
+    return [...acc.entries()]
+      .filter(([, v]) => v > 0)
+      .sort((a, b) => a[0] - b[0])
+      .map(([ano, total]) => ({ ano, total }));
+  }, [payments, bancaPayments, fiscalizacaoPayments, comissaoMedicaPayments]);
+
+  const overviewGroups = useMemo(() => {
+    const { sub, coord, fiscal, banca, comissao, grandTotal } = overviewTotals;
+    const pct = (v: number) => (grandTotal > 0 ? (v / grandTotal) * 100 : 0);
+    return [
+      {
+        grupo: "Subcomissões Estaduais",
+        total: sub,
+        pct: pct(sub),
+        color: "#2563eb",
+        anchor: "#detalhe-subcomissoes",
+      },
+      {
+        grupo: "Coordenação Nacional",
+        total: coord,
+        pct: pct(coord),
+        color: "#1d4ed8",
+        anchor: "#detalhe-coord-nacional",
+      },
+      {
+        grupo: "Aplicação de Prova",
+        total: fiscal,
+        pct: pct(fiscal),
+        color: "#0369a1",
+        anchor: "#detalhe-aplicacao-prova",
+      },
+      {
+        grupo: "Banca Examinadora",
+        total: banca,
+        pct: pct(banca),
+        color: "#0d9488",
+        anchor: "#detalhe-banca",
+      },
+      {
+        grupo: "Comissão Especial de Avaliação",
+        total: comissao,
+        pct: pct(comissao),
+        color: "#c2410c",
+        anchor: "#detalhe-comissao-especial",
+      },
+    ];
+  }, [overviewTotals]);
+
+  const overviewGroupsChartData = useMemo(
+    () =>
+      overviewGroups.map((g) => ({
+        ...g,
+        grupoLabel: g.grupo.length > 24 ? `${g.grupo.slice(0, 22).trim()}…` : g.grupo,
+      })),
+    [overviewGroups],
   );
 
   /** Barras fixas por UF (todas as UFs ou só as selecionadas), ordem estável. */
@@ -338,7 +421,7 @@ export function PaymentsDashboard({
     return rows;
   }, [unitPerUfRows, unitChartSort]);
 
-  const totalsByMonth = (() => {
+  const totalsByMonth = useMemo(() => {
     const grouped = new Map<string, number>();
     filteredPayments.forEach((item) => {
       const month = item.reference_month.slice(0, 7);
@@ -347,7 +430,7 @@ export function PaymentsDashboard({
     return Array.from(grouped.entries())
       .map(([month, amount]) => ({ month, amount }))
       .sort((a, b) => a.month.localeCompare(b.month));
-  })();
+  }, [filteredPayments]);
 
   const coordTotalsByMonth = useMemo(() => {
     const grouped = new Map<string, number>();
@@ -374,7 +457,8 @@ export function PaymentsDashboard({
       <header className="rounded-xl bg-blue-950 px-6 py-7 text-white shadow-lg">
         <h1 className="text-2xl font-bold md:text-3xl">Controle Orçamentário - 31º CPR</h1>
         <p className="mt-2 text-sm text-blue-100 md:text-base">
-          Acompanhe os pagamentos mensais por UF com filtros dinâmicos.
+          Visão consolidada de todos os grupos de despesa do concurso, com a opção de detalhar cada
+          tipo de pagamento.
         </p>
       </header>
 
@@ -388,62 +472,178 @@ export function PaymentsDashboard({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 rounded-xl bg-white p-4 shadow-sm md:grid-cols-4">
-        <article className="rounded-lg bg-slate-50 p-4">
-          <p className="text-sm text-slate-500">Total filtrado</p>
-          <p className="mt-1 text-2xl font-semibold text-slate-900">{currency.format(totalValue)}</p>
-        </article>
-        <article className="rounded-lg bg-slate-50 p-4">
-          <p className="text-sm text-slate-500">Registros</p>
-          <p className="mt-1 text-2xl font-semibold text-slate-900">{totalRecords}</p>
-        </article>
-        <article className="rounded-lg bg-slate-50 p-4">
-          <p className="text-sm text-slate-500">Média por lançamento</p>
-          <p className="mt-1 text-2xl font-semibold text-slate-900">{currency.format(avgValue)}</p>
-        </article>
-        <article
-          className="rounded-lg bg-slate-50 p-4"
-          title={
-            enrolledUnavailable
-              ? "Para exibir inscritos: no Supabase, crie política SELECT na tabela qtd_inscrit_uf para o papel anon (como nas tabelas pgto_*)."
-              : undefined
-          }
-        >
-          <p className="text-sm text-slate-500">Qtd. inscritos (total UF)</p>
-          <p className="mt-1 text-2xl font-semibold text-slate-900">
-            {enrolledUnavailable ? "—" : totalEnrolled.toLocaleString("pt-BR")}
+      <section
+        aria-label="Visão geral do concurso"
+        className="overflow-hidden rounded-xl bg-white shadow-sm"
+      >
+        <div className="bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 px-6 py-7 text-white md:px-8 md:py-9">
+          <p className="text-xs font-medium uppercase tracking-wider text-blue-200">
+            Total gasto no concurso (todos os grupos e anos)
           </p>
-          {!enrolledUnavailable && (
-            <details className="mt-3 group">
-              <summary className="cursor-pointer list-none text-xs font-medium text-blue-700 underline decoration-blue-300 hover:text-blue-900 [&::-webkit-details-marker]:hidden">
-                Ver quantidade por UF
-              </summary>
-              <div className="mt-2 max-h-48 overflow-y-auto rounded border border-slate-200 bg-white text-xs">
-                <table className="w-full border-collapse text-left">
-                  <thead className="sticky top-0 bg-slate-100 text-slate-600">
-                    <tr>
-                      <th className="px-2 py-1.5 font-medium">UF</th>
-                      <th className="px-2 py-1.5 font-medium text-right">Inscritos</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ALL_UFS.map((uf) => (
-                      <tr key={uf} className="border-t border-slate-100">
-                        <td className="px-2 py-1 font-mono">{uf}</td>
-                        <td className="px-2 py-1 text-right tabular-nums">
-                          {(enrolledByUf[uf] ?? 0).toLocaleString("pt-BR")}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </details>
+          <p className="mt-2 text-3xl font-bold tabular-nums md:text-5xl">
+            {currency.format(overviewTotals.grandTotal)}
+          </p>
+          {overviewByYear.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {overviewByYear.map((y) => (
+                <span
+                  key={y.ano}
+                  className="rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-blue-50 ring-1 ring-inset ring-white/20"
+                >
+                  {y.ano}:{" "}
+                  <span className="font-semibold tabular-nums">{currency.format(y.total)}</span>
+                </span>
+              ))}
+            </div>
           )}
-        </article>
-      </div>
+        </div>
 
-      <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
+        <div className="px-5 py-5 md:px-8 md:py-6">
+          <div className="mb-3 flex items-baseline justify-between gap-2">
+            <h2 className="text-base font-semibold text-slate-900">
+              Distribuição por grupo de despesa
+            </h2>
+            <p className="text-xs text-slate-500">
+              Clique em &quot;Detalhar&quot; para aprofundar em qualquer grupo.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {overviewGroups.map((g) => (
+              <article
+                key={g.grupo}
+                className="flex flex-col justify-between rounded-lg border border-slate-200 bg-slate-50/70 p-4"
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-700">{g.grupo}</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900">
+                    {currency.format(g.total)}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {g.pct.toFixed(1).replace(".", ",")}% do total
+                  </p>
+                </div>
+                <div className="mt-3">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
+                    <div
+                      style={{ width: `${Math.max(g.pct, g.total > 0 ? 2 : 0)}%`, backgroundColor: g.color }}
+                      className="h-full rounded-full transition-all"
+                    />
+                  </div>
+                  <a
+                    href={g.anchor}
+                    className="mt-2 inline-block text-xs font-medium text-blue-700 underline decoration-blue-300 hover:text-blue-900"
+                  >
+                    Detalhar esse grupo →
+                  </a>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <div className="mt-6 h-[min(22rem,52vh)] w-full min-h-[14rem] rounded-lg border border-slate-100 bg-white p-2">
+            {isClient && overviewTotals.grandTotal > 0 && (
+              <ResponsiveContainer width="98%" height="100%">
+                <BarChart
+                  data={overviewGroupsChartData}
+                  layout="vertical"
+                  margin={{ left: 8, right: 24, top: 8, bottom: 8 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" tickFormatter={formatCurrency} />
+                  <YAxis
+                    dataKey="grupoLabel"
+                    type="category"
+                    width={150}
+                    tick={{ fontSize: 11 }}
+                  />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.[0]) return null;
+                      const p = payload[0].payload as (typeof overviewGroupsChartData)[number];
+                      return (
+                        <div className="max-w-xs rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
+                          <p className="font-medium text-slate-900">{p.grupo}</p>
+                          <p className="mt-1 text-slate-700">
+                            {formatCurrency(p.total)}{" "}
+                            <span className="text-slate-500">
+                              ({p.pct.toFixed(1).replace(".", ",")}% do total)
+                            </span>
+                          </p>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar dataKey="total" radius={[0, 6, 6, 0]} name="Total" minPointSize={2}>
+                    {overviewGroupsChartData.map((entry) => (
+                      <Cell key={entry.grupo} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+            {isClient && overviewTotals.grandTotal === 0 && (
+              <p className="flex h-full items-center justify-center text-center text-sm text-slate-500">
+                Ainda não há valores consolidados para exibir. Verifique as tabelas pgto_* no Supabase.
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <nav
+        aria-label="Ir para um tipo de despesa"
+        className="flex flex-wrap items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm shadow-sm"
+      >
+        <span className="text-slate-500">Detalhar:</span>
+        <a
+          href="#detalhe-subcomissoes"
+          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
+        >
+          Subcomissões Estaduais
+        </a>
+        <a
+          href="#detalhe-coord-nacional"
+          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
+        >
+          Coordenação Nacional
+        </a>
+        <a
+          href="#detalhe-aplicacao-prova"
+          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
+        >
+          Aplicação de Prova
+        </a>
+        <a
+          href="#detalhe-comissao-especial"
+          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
+        >
+          Comissão Especial
+        </a>
+        <a
+          href="#detalhe-banca"
+          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
+        >
+          Banca Examinadora
+        </a>
+        <a
+          href="#detalhe-despesa-inscrito"
+          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
+        >
+          Despesa por Inscrito
+        </a>
+        <a
+          href="#detalhe-evolucao"
+          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
+        >
+          Evolução mensal
+        </a>
+      </nav>
+
+      <article
+        id="detalhe-subcomissoes"
+        className="rounded-xl bg-white p-4 shadow-sm scroll-mt-20 md:p-6"
+      >
         <div className="mb-4 flex flex-col gap-1 border-b border-slate-100 pb-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">
@@ -505,6 +705,59 @@ export function PaymentsDashboard({
           </div>
         </div>
 
+        <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <article className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Total no filtro (Subcomissões + Coordenação)
+            </p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+              {currency.format(totalValue)}
+            </p>
+          </article>
+          <article
+            className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3"
+            title={
+              enrolledUnavailable
+                ? "Para exibir inscritos: no Supabase, crie política SELECT na tabela qtd_inscrit_uf para o papel anon."
+                : undefined
+            }
+          >
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Qtd. inscritos (UFs no filtro)
+            </p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+              {enrolledUnavailable ? "—" : totalEnrolled.toLocaleString("pt-BR")}
+            </p>
+            {!enrolledUnavailable && (
+              <details className="mt-2 group">
+                <summary className="cursor-pointer list-none text-xs font-medium text-blue-700 underline decoration-blue-300 hover:text-blue-900 [&::-webkit-details-marker]:hidden">
+                  Ver quantidade por UF
+                </summary>
+                <div className="mt-2 max-h-48 overflow-y-auto rounded border border-slate-200 bg-white text-xs">
+                  <table className="w-full border-collapse text-left">
+                    <thead className="sticky top-0 bg-slate-100 text-slate-600">
+                      <tr>
+                        <th className="px-2 py-1.5 font-medium">UF</th>
+                        <th className="px-2 py-1.5 font-medium text-right">Inscritos</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ALL_UFS.map((uf) => (
+                        <tr key={uf} className="border-t border-slate-100">
+                          <td className="px-2 py-1 font-mono">{uf}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">
+                            {(enrolledByUf[uf] ?? 0).toLocaleString("pt-BR")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
+          </article>
+        </div>
+
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm font-medium text-slate-700">Ordenação das barras</p>
           <select
@@ -548,7 +801,10 @@ export function PaymentsDashboard({
         </div>
       </article>
 
-      <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
+      <article
+        id="detalhe-despesa-inscrito"
+        className="rounded-xl bg-white p-4 shadow-sm scroll-mt-20 md:p-6"
+      >
         <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Despesa por Inscrito</h2>
@@ -638,7 +894,7 @@ export function PaymentsDashboard({
         </div>
       </article>
 
-      <article className="rounded-xl bg-white p-4 shadow-sm">
+      <article id="detalhe-coord-nacional" className="rounded-xl bg-white p-4 shadow-sm scroll-mt-20">
         <h2 className="mb-3 text-base font-semibold text-slate-900">
           Pagamentos da Coordenação Nacional
         </h2>
@@ -672,7 +928,10 @@ export function PaymentsDashboard({
         </div>
       </article>
 
-      <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
+      <article
+        id="detalhe-aplicacao-prova"
+        className="rounded-xl bg-white p-4 shadow-sm scroll-mt-20 md:p-6"
+      >
         <h2 className="mb-2 text-lg font-semibold text-slate-900">Aplicação de Prova</h2>
         <p className="mb-4 text-sm text-slate-600">
           Valores da tabela <code className="rounded bg-slate-100 px-1">pgto_fiscalizacao</code> (tipo de
@@ -726,7 +985,10 @@ export function PaymentsDashboard({
         </div>
       </article>
 
-      <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
+      <article
+        id="detalhe-comissao-especial"
+        className="rounded-xl bg-white p-4 shadow-sm scroll-mt-20 md:p-6"
+      >
         <h2 className="mb-2 text-lg font-semibold text-slate-900">Comissão Especial de Avaliação</h2>
         <p className="mb-4 text-sm text-slate-600">
           Valores da tabela <code className="rounded bg-slate-100 px-1">pgto_comissao_medica</code> (mês,
@@ -771,7 +1033,10 @@ export function PaymentsDashboard({
         </div>
       </article>
 
-      <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
+      <article
+        id="detalhe-banca"
+        className="rounded-xl bg-white p-4 shadow-sm scroll-mt-20 md:p-6"
+      >
         <h2 className="mb-2 text-lg font-semibold text-slate-900">Pagamento à banca examinadora (31º CPR)</h2>
         <p className="mb-4 text-sm text-slate-600">
           Dados da tabela <code className="rounded bg-slate-100 px-1">pgto_banca</code> (atividade, valor,
@@ -866,7 +1131,7 @@ export function PaymentsDashboard({
         </div>
       </article>
 
-      <article className="rounded-xl bg-white p-4 shadow-sm">
+      <article id="detalhe-evolucao" className="rounded-xl bg-white p-4 shadow-sm scroll-mt-20">
         <h2 className="mb-3 text-base font-semibold text-slate-900">Evolução mensal</h2>
         <div className="h-80">
           {isClient && (

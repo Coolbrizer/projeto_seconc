@@ -29,7 +29,19 @@ const AUTH_USERS: Array<AuthUser & { password: string }> = [
 
 export const SESSION_COOKIE_NAME = "seconc_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 horas
-const SESSION_SECRET = process.env.SESSION_SECRET ?? "seconc-dev-session-secret";
+
+function resolveSessionSecret(): string {
+  const envSecret = process.env.SESSION_SECRET?.trim();
+  if (envSecret && envSecret.length >= 16) return envSecret;
+  if (process.env.NODE_ENV === "production" && process.env.NEXT_PHASE !== "phase-production-build") {
+    console.warn(
+      "[auth] SESSION_SECRET ausente ou com menos de 16 chars em produção. Defina uma chave forte em process.env.SESSION_SECRET para assinar sessões.",
+    );
+  }
+  return "seconc-dev-session-secret";
+}
+
+const SESSION_SECRET = resolveSessionSecret();
 
 function toBase64Url(value: string) {
   return Buffer.from(value, "utf-8").toString("base64url");
