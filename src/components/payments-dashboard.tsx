@@ -13,18 +13,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type {
-  BancaPaymentRecord,
-  DashboardDataNotice,
-  GratificacaoGpsRecord,
-  PaymentRecord,
-} from "@/types/payment";
-import { GratificacaoGpsPanel } from "@/components/gratificacao-gps-panel";
+import type { BancaPaymentRecord, DashboardDataNotice, PaymentRecord } from "@/types/payment";
 
 type PaymentsDashboardProps = {
   payments: PaymentRecord[];
   bancaPayments: BancaPaymentRecord[];
-  gratificacaoGps: GratificacaoGpsRecord[];
   enrolledByUf: Record<string, number>;
   dataNotice?: DashboardDataNotice;
   enrolledUnavailable?: boolean;
@@ -133,7 +126,6 @@ type BancaSort = "chrono" | "amount-asc" | "amount-desc";
 export function PaymentsDashboard({
   payments,
   bancaPayments,
-  gratificacaoGps,
   enrolledByUf,
   dataNotice,
   enrolledUnavailable,
@@ -363,8 +355,7 @@ export function PaymentsDashboard({
       <header className="rounded-xl bg-blue-950 px-6 py-7 text-white shadow-lg">
         <h1 className="text-2xl font-bold md:text-3xl">Controle Orçamentário - 31º CPR</h1>
         <p className="mt-2 text-sm text-blue-100 md:text-base">
-          Acompanhe gratificações no GPS (por equipe, data e ano) e os pagamentos mensais por UF com filtros
-          dinâmicos.
+          Acompanhe os pagamentos mensais por UF com filtros dinâmicos.
         </p>
       </header>
 
@@ -432,8 +423,6 @@ export function PaymentsDashboard({
           )}
         </article>
       </div>
-
-      <GratificacaoGpsPanel rows={gratificacaoGps} />
 
       <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
         <div className="mb-4 flex flex-col gap-1 border-b border-slate-100 pb-4 md:flex-row md:items-end md:justify-between">
