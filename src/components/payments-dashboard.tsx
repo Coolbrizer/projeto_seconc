@@ -551,7 +551,7 @@ export function PaymentsDashboard({
       <article className="rounded-xl bg-white p-4 shadow-sm md:p-6">
         <div className="mb-4 flex flex-col gap-3 border-b border-slate-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Gasto por inscrito (UF)</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Despesa por Inscrito</h2>
             <p className="mt-1 text-sm text-slate-600">
               Valor total filtrado (Coord + UF) ÷ quantidade de inscritos por UF. Sem inscritos: barra
               zerada.
@@ -639,9 +639,11 @@ export function PaymentsDashboard({
       </article>
 
       <article className="rounded-xl bg-white p-4 shadow-sm">
-        <h2 className="mb-3 text-base font-semibold text-slate-900">Coordenação - evolução mensal</h2>
+        <h2 className="mb-3 text-base font-semibold text-slate-900">
+          Pagamentos da Coordenação Nacional
+        </h2>
         <p className="mb-3 text-sm text-slate-600">
-          Valores mensais exclusivos da Coordenação (tabelas{" "}
+          Valores mensais da coordenação nacional (tabelas{" "}
           <code className="rounded bg-slate-100 px-1">pgto_coord_2025</code> e{" "}
           <code className="rounded bg-slate-100 px-1">pgto_coord_2026</code>), respeitando os filtros de
           ano e UF.
@@ -659,7 +661,7 @@ export function PaymentsDashboard({
                 />
                 <Bar
                   dataKey="amount"
-                  name="Coordenação"
+                  name="Coordenação nacional"
                   fill="#2563eb"
                   radius={[4, 4, 0, 0]}
                   maxBarSize={56}
