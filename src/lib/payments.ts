@@ -1,5 +1,10 @@
 import { getSupabase } from "@/lib/supabase";
-import type { BancaPaymentRecord, DashboardData, PaymentRecord } from "@/types/payment";
+import type {
+  BancaPaymentRecord,
+  DashboardData,
+  GratificacaoGpsRecord,
+  PaymentRecord,
+} from "@/types/payment";
 
 const monthMap: Record<string, string> = {
   jan: "01",
@@ -61,6 +66,138 @@ function toNumericValue(value: unknown) {
     return Number.isFinite(numeric) ? numeric : 0;
   }
   return 0;
+}
+
+/** Valor monetário ausente ou “-” → null; zero é válido. */
+function toNumericValueNullable(value: unknown): number | null {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    const s = value.trim().replace(/\u00a0/g, " ");
+    if (!s || s === "-" || s === "—") return null;
+  }
+  const n = toNumericValue(value);
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+
+function stripAccents(s: string) {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Chave normalizada para casar cabeçalhos de planilha com colunas SQL. */
+function normHeaderKey(key: string) {
+  return stripAccents(key.trim().toLowerCase()).replace(/\s+/g, "_");
+}
+
+function rowByNormKeys(row: Record<string, unknown>): Map<string, unknown> {
+  const m = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(row)) {
+    m.set(normHeaderKey(k), v);
+  }
+  return m;
+}
+
+function getFromNormMap(m: Map<string, unknown>, ...aliases: string[]): unknown {
+  for (const a of aliases) {
+    const v = m.get(normHeaderKey(a));
+    if (v !== undefined && v !== null && v !== "") return v;
+  }
+  return undefined;
+}
+
+/** DD/MM/AAAA ou ISO → `YYYY-MM-DD`; vazio / traço → null. */
+function parseDateBrOrIso(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") {
+    const t = value.trim();
+    if (!t || t === "-" || t === "—") return null;
+    const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const br = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (br) {
+      const d = Number(br[1]);
+      const mo = Number(br[2]);
+      const y = Number(br[3]);
+      if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31 && y >= 2000 && y <= 2100) {
+        return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      }
+    }
+  }
+  return null;
+}
+
+function normalizeGratificacaoGpsRows(rows: Array<Record<string, unknown>>): GratificacaoGpsRecord[] {
+  const out: GratificacaoGpsRecord[] = [];
+
+  rows.forEach((row, i) => {
+    const m = rowByNormKeys(row);
+
+    const compRaw =
+      getFromNormMap(m, "competencia_ano", "competencia", "competência", "ano_competencia", "ano") ??
+      row.competencia_ano ??
+      row.competencia;
+    const competenciaAno = parseAno(compRaw);
+    if (competenciaAno == null || competenciaAno < 2000 || competenciaAno > 2100) return;
+
+    const grupoRaw =
+      getFromNormMap(m, "grupo", "equipe", "setor", "area") ?? row.grupo ?? row.Grupo;
+    const grupo = typeof grupoRaw === "string" ? grupoRaw.trim() : String(grupoRaw ?? "").trim();
+    if (!grupo) return;
+
+    const refRaw =
+      getFromNormMap(m, "referencia", "referência", "descricao", "descrição", "atividade") ??
+      row.referencia ??
+      row.Referencia;
+    const referencia = typeof refRaw === "string" ? refRaw.trim() : String(refRaw ?? "").trim();
+    if (!referencia) return;
+
+    const dataRaw =
+      getFromNormMap(
+        m,
+        "data_lancamento_gps",
+        "data_de_lancamento_no_gps",
+        "data_lancamento",
+        "data_gps",
+        "data",
+      ) ??
+      row.data_lancamento_gps ??
+      row.data_lancamento;
+    const data_lancamento_gps = parseDateBrOrIso(dataRaw);
+
+    const valorRaw =
+      getFromNormMap(m, "amount", "valor", "valor_lancado", "valor_lançado", "vlr") ??
+      row.amount ??
+      row.valor;
+    const amount = toNumericValueNullable(valorRaw);
+
+    const docRaw =
+      getFromNormMap(m, "documento_seconc", "documento", "pgr", "doc_seconc", "seconc") ??
+      row.documento_seconc ??
+      row.documento;
+    let documento_seconc: string | null = null;
+    if (typeof docRaw === "string") {
+      const t = docRaw.trim();
+      documento_seconc = t.length > 0 ? t : null;
+    }
+
+    const idRaw = row.id ?? row.ID;
+    const id =
+      typeof idRaw === "string" && idRaw.length > 0
+        ? idRaw
+        : `gps-${i}-${grupo.slice(0, 12)}-${referencia.slice(0, 12)}`.replace(/\s+/g, "-");
+
+    out.push({
+      id,
+      competencia_ano: competenciaAno,
+      data_lancamento_gps,
+      grupo,
+      referencia,
+      amount,
+      documento_seconc,
+    });
+  });
+
+  return out;
 }
 
 /**
@@ -229,6 +366,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     return {
       payments: [],
       bancaPayments: [],
+      gratificacaoGps: [],
       enrolledByUf: {},
       dataNotice: "missing_supabase",
     };
@@ -243,6 +381,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       return {
         payments: [],
         bancaPayments: [],
+        gratificacaoGps: [],
         enrolledByUf: {},
         dataNotice: "supabase_fetch_error",
       };
@@ -259,6 +398,23 @@ export async function getDashboardData(): Promise<DashboardData> {
     bancaPayments = normalizeBancaRows((bancaResult.data ?? []) as Array<Record<string, unknown>>);
   }
 
+  let gratificacaoGps: GratificacaoGpsRecord[] = [];
+  const gpsResult = await supabase.from("gratificacao_gps").select("*");
+  if (gpsResult.error) {
+    console.error("Erro ao buscar tabela gratificacao_gps:", gpsResult.error.message);
+  } else {
+    gratificacaoGps = normalizeGratificacaoGpsRows(
+      (gpsResult.data ?? []) as Array<Record<string, unknown>>,
+    );
+    gratificacaoGps.sort((a, b) => {
+      const da = a.data_lancamento_gps ?? "";
+      const db = b.data_lancamento_gps ?? "";
+      const byDate = db.localeCompare(da);
+      if (byDate !== 0) return byDate;
+      return a.grupo.localeCompare(b.grupo, "pt-BR") || a.referencia.localeCompare(b.referencia, "pt-BR");
+    });
+  }
+
   const { data: enrolledRows, error: enrolledError } = await supabase
     .from("qtd_inscrit_uf")
     .select("*");
@@ -268,6 +424,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     return {
       payments: payments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
       bancaPayments: bancaPayments.sort((a, b) => a.atv.localeCompare(b.atv)),
+      gratificacaoGps,
       enrolledByUf: {},
       enrolledUnavailable: true,
     };
@@ -286,6 +443,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   return {
     payments: payments.sort((a, b) => a.reference_month.localeCompare(b.reference_month)),
     bancaPayments: bancaPayments.sort((a, b) => a.atv.localeCompare(b.atv)),
+    gratificacaoGps,
     enrolledByUf,
   };
 }

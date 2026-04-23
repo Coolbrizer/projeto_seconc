@@ -23,3 +23,33 @@ create policy "Leitura publica pagamentos"
   for select
   to anon, authenticated
   using (true);
+
+-- Lançamentos de gratificação no GPS (espelho da planilha: competência, data, grupo, referência, PGR).
+create table if not exists public.gratificacao_gps (
+  id uuid primary key default gen_random_uuid(),
+  competencia_ano int not null check (competencia_ano >= 2000 and competencia_ano <= 2100),
+  data_lancamento_gps date,
+  grupo text not null,
+  referencia text not null,
+  amount numeric(14, 2) check (amount is null or amount >= 0),
+  documento_seconc text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_gratificacao_gps_competencia
+  on public.gratificacao_gps (competencia_ano);
+
+create index if not exists idx_gratificacao_gps_grupo
+  on public.gratificacao_gps (grupo);
+
+create index if not exists idx_gratificacao_gps_data_gps
+  on public.gratificacao_gps (data_lancamento_gps);
+
+alter table public.gratificacao_gps enable row level security;
+
+drop policy if exists "Leitura publica gratificacao_gps" on public.gratificacao_gps;
+create policy "Leitura publica gratificacao_gps"
+  on public.gratificacao_gps
+  for select
+  to anon, authenticated
+  using (true);
