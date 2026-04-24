@@ -258,23 +258,6 @@ export function PaymentsDashboard({
     [comissaoChartRows],
   );
 
-  const execucaoChartRows = useMemo(() => {
-    const rows = execucaoPayments.filter((r) => matchesDashboardYear(r.ano, selectedYear));
-    rows.sort(
-      (a, b) => b.amount - a.amount || a.descricao.localeCompare(b.descricao, "pt-BR"),
-    );
-    return rows.map((r) => ({
-      ...r,
-      descricaoLabel:
-        r.descricao.length > 48 ? `${r.descricao.slice(0, 46).trim()}…` : r.descricao,
-    }));
-  }, [execucaoPayments, selectedYear]);
-
-  const execucaoTotalFiltered = useMemo(
-    () => execucaoChartRows.reduce((acc, r) => acc + r.amount, 0),
-    [execucaoChartRows],
-  );
-
   const totalValue = filteredPayments.reduce((acc, item) => acc + item.amount, 0);
   const totalEnrolled = (selectedUfs.length === 0 ? [...ALL_UFS] : selectedUfs).reduce(
     (acc, uf) => acc + (enrolledByUf[uf] ?? 0),
@@ -315,8 +298,9 @@ export function PaymentsDashboard({
   }, [payments, bancaPayments, fiscalizacaoPayments, comissaoMedicaPayments, execucaoPayments]);
 
   const overviewGroups = useMemo(() => {
-    const { sub, coord, fiscal, banca, comissao, execucao, grandTotal } = overviewTotals;
+    const { sub, coord, fiscal, banca, comissao, grandTotal } = overviewTotals;
     const pct = (v: number) => (grandTotal > 0 ? (v / grandTotal) * 100 : 0);
+    // Execução entra no somatório total, mas não é apresentada como grupo nos gráficos/cards.
     return [
       {
         grupo: "Subcomissões Estaduais",
@@ -331,13 +315,6 @@ export function PaymentsDashboard({
         pct: pct(coord),
         color: "#1d4ed8",
         anchor: "#detalhe-coord-nacional",
-      },
-      {
-        grupo: "Execução",
-        total: execucao,
-        pct: pct(execucao),
-        color: "#7c3aed",
-        anchor: "#detalhe-execucao",
       },
       {
         grupo: "Aplicação de Prova",
@@ -636,12 +613,6 @@ export function PaymentsDashboard({
           className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
         >
           Coordenação Nacional
-        </a>
-        <a
-          href="#detalhe-execucao"
-          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
-        >
-          Execução
         </a>
         <a
           href="#detalhe-aplicacao-prova"
@@ -959,75 +930,6 @@ export function PaymentsDashboard({
                 />
               </BarChart>
             </ResponsiveContainer>
-          )}
-        </div>
-      </article>
-
-      <article
-        id="detalhe-execucao"
-        className="rounded-xl bg-white p-4 shadow-sm scroll-mt-20 md:p-6"
-      >
-        <h2 className="mb-2 text-lg font-semibold text-slate-900">Execução</h2>
-        <p className="mb-4 text-sm text-slate-600">
-          Valores da tabela <code className="rounded bg-slate-100 px-1">pgto_execucao</code> (descrição,
-          valor, ano). Respeita o filtro <strong>Ano</strong> de &quot;Pagamentos das Subcomissões
-          Estaduais&quot;.
-        </p>
-        <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Total no período filtrado
-          </p>
-          <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
-            {formatCurrency(execucaoTotalFiltered)}
-          </p>
-        </div>
-        <div className="h-[min(26rem,65vh)] w-full min-h-[18rem]">
-          {isClient && execucaoChartRows.length > 0 && (
-            <ResponsiveContainer width="98%" height="100%">
-              <BarChart
-                data={execucaoChartRows}
-                margin={{ left: 12, right: 12, top: 8, bottom: 100 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="descricaoLabel"
-                  type="category"
-                  interval={0}
-                  angle={-36}
-                  textAnchor="end"
-                  height={100}
-                  tick={{ fontSize: 10 }}
-                />
-                <YAxis tickFormatter={(v) => formatCurrency(v)} width={84} />
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.[0]) return null;
-                    const p = payload[0].payload as ExecucaoPaymentRecord & {
-                      descricaoLabel: string;
-                    };
-                    return (
-                      <div className="max-w-md rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
-                        <p className="font-medium leading-snug text-slate-900">{p.descricao}</p>
-                        <p className="mt-1 text-violet-800">{formatCurrency(p.amount)}</p>
-                        <p className="text-slate-500">Ano: {p.ano}</p>
-                      </div>
-                    );
-                  }}
-                />
-                <Bar
-                  dataKey="amount"
-                  name="Valor"
-                  fill="#7c3aed"
-                  radius={[6, 6, 0, 0]}
-                  minPointSize={2}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-          {isClient && execucaoChartRows.length === 0 && (
-            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-500">
-              Nenhum registro de execução para o ano selecionado ou tabela vazia / sem permissão de leitura.
-            </p>
           )}
         </div>
       </article>
