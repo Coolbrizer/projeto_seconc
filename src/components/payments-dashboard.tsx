@@ -94,6 +94,15 @@ function monthLabel(value: string) {
   return date.toLocaleDateString("pt-BR", { month: "short", year: "numeric" });
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 /** Ordenação de rótulos de mês em português (comissão médica). */
 function mesCalendarioOrdem(mes: string): number {
   const k = mes.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -155,6 +164,7 @@ export function PaymentsDashboard({
   const [unitChartSort, setUnitChartSort] = useState<UnitChartSort>("unit-desc");
   const [bancaYearFilter, setBancaYearFilter] = useState<BancaYearFilter>("both");
   const [bancaSort, setBancaSort] = useState<BancaSort>("chrono");
+  const [isExportingReport, setIsExportingReport] = useState(false);
   const [isClient, setIsClient] = useState(false);
   useEffect(() => {
     setIsClient(true);
@@ -349,6 +359,178 @@ export function PaymentsDashboard({
     [overviewGroups],
   );
 
+  const reportGroupsFull = useMemo(() => {
+    const rows = [
+      { grupo: "Subcomissões Estaduais", total: overviewTotals.sub },
+      { grupo: "Coordenação Nacional", total: overviewTotals.coord },
+      { grupo: "Execução", total: overviewTotals.execucao },
+      { grupo: "Aplicação de Prova", total: overviewTotals.fiscal },
+      { grupo: "Banca Examinadora", total: overviewTotals.banca },
+      { grupo: "Comissão Especial de Avaliação", total: overviewTotals.comissao },
+    ];
+    return rows.sort((a, b) => b.total - a.total);
+  }, [overviewTotals]);
+
+  const reportUfTotals = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of payments) {
+      if (p.source !== "uf") continue;
+      map.set(p.uf, (map.get(p.uf) ?? 0) + p.amount);
+    }
+    return [...map.entries()]
+      .map(([uf, total]) => ({ uf, total }))
+      .sort((a, b) => b.total - a.total);
+  }, [payments]);
+
+  function handleExtractReportPdf() {
+    if (!isClient) return;
+    setIsExportingReport(true);
+    try {
+      const now = new Date();
+      const generatedAt = now.toLocaleString("pt-BR");
+      const maxGroup = Math.max(...reportGroupsFull.map((r) => r.total), 0);
+      const maxUf = Math.max(...reportUfTotals.map((r) => r.total), 0);
+      const topUfs = reportUfTotals.slice(0, 12);
+      const topUfsRows = topUfs
+        .map(
+          (r, idx) =>
+            `<tr><td>${idx + 1}</td><td>${escapeHtml(r.uf)}</td><td class="num">${escapeHtml(
+              currencyFine.format(r.total),
+            )}</td></tr>`,
+        )
+        .join("");
+      const yearsRows = overviewByYear
+        .map(
+          (y) =>
+            `<tr><td>${y.ano}</td><td class="num">${escapeHtml(currencyFine.format(y.total))}</td></tr>`,
+        )
+        .join("");
+      const groupsRows = reportGroupsFull
+        .map(
+          (g) =>
+            `<tr><td>${escapeHtml(g.grupo)}</td><td class="num">${escapeHtml(
+              currencyFine.format(g.total),
+            )}</td></tr>`,
+        )
+        .join("");
+      const groupsBars = reportGroupsFull
+        .map((g) => {
+          const w = maxGroup > 0 ? (g.total / maxGroup) * 100 : 0;
+          return `<div class="bar-item"><div class="bar-label">${escapeHtml(
+            g.grupo,
+          )}</div><div class="bar-wrap"><div class="bar" style="width:${w.toFixed(2)}%"></div></div><div class="bar-value">${escapeHtml(
+            currencyFine.format(g.total),
+          )}</div></div>`;
+        })
+        .join("");
+      const ufBars = topUfs
+        .map((r) => {
+          const w = maxUf > 0 ? (r.total / maxUf) * 100 : 0;
+          return `<div class="bar-item"><div class="bar-label">${escapeHtml(
+            r.uf,
+          )}</div><div class="bar-wrap"><div class="bar bar-uf" style="width:${w.toFixed(2)}%"></div></div><div class="bar-value">${escapeHtml(
+            currencyFine.format(r.total),
+          )}</div></div>`;
+        })
+        .join("");
+
+      const html = `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Relatório Financeiro - 31º CPR</title>
+  <style>
+    * { box-sizing: border-box; font-family: Arial, sans-serif; }
+    body { margin: 20px; color: #0f172a; }
+    h1 { margin: 0 0 6px; font-size: 24px; }
+    h2 { margin: 22px 0 10px; font-size: 16px; }
+    p { margin: 4px 0; }
+    .muted { color: #475569; font-size: 12px; }
+    .hero { border: 1px solid #cbd5e1; border-left: 8px solid #1d4ed8; border-radius: 10px; padding: 14px 16px; background: #f8fafc; }
+    .hero .big { font-size: 34px; font-weight: 700; margin-top: 6px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th, td { border: 1px solid #e2e8f0; padding: 6px 8px; text-align: left; }
+    th { background: #f1f5f9; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .bars { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; }
+    .bar-item { display: grid; grid-template-columns: 220px 1fr 130px; gap: 8px; align-items: center; margin: 6px 0; }
+    .bar-label { font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .bar-wrap { background: #e2e8f0; border-radius: 999px; height: 12px; overflow: hidden; }
+    .bar { height: 100%; background: #1d4ed8; }
+    .bar-uf { background: #0f766e; }
+    .bar-value { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .section-note { font-size: 11px; color: #475569; margin-top: 6px; }
+    @media print {
+      body { margin: 10mm; }
+      .no-print { display: none; }
+      h2 { page-break-after: avoid; }
+      .bars, table { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <h1>Relatório Financeiro - 31º CPR</h1>
+    <p class="muted">Gerado em: ${escapeHtml(generatedAt)}</p>
+    <p class="muted">Escopo: todos os anos e todos os grupos de despesa cadastrados</p>
+    <div class="big">${escapeHtml(currencyFine.format(overviewTotals.grandTotal))}</div>
+  </div>
+
+  <h2>1) Resumo Executivo</h2>
+  <div class="grid">
+    <table>
+      <thead><tr><th>Ano</th><th class="num">Valor</th></tr></thead>
+      <tbody>${yearsRows || "<tr><td colspan='2'>Sem dados</td></tr>"}</tbody>
+    </table>
+    <table>
+      <thead><tr><th>Grupo de despesa</th><th class="num">Valor</th></tr></thead>
+      <tbody>${groupsRows || "<tr><td colspan='2'>Sem dados</td></tr>"}</tbody>
+    </table>
+  </div>
+
+  <h2>2) Comparativo por Grupo de Despesa</h2>
+  <div class="bars">${groupsBars || "<p>Sem dados para comparação.</p>"}</div>
+  <p class="section-note">Inclui: Subcomissões Estaduais, Coordenação Nacional, Execução, Aplicação de Prova, Banca Examinadora e Comissão Especial de Avaliação.</p>
+
+  <h2>3) Comparativo por UF (Subcomissões Estaduais)</h2>
+  <div class="bars">${ufBars || "<p>Sem dados por UF.</p>"}</div>
+  <p class="section-note">Ranking das 12 UFs com maior volume de pagamentos acumulados.</p>
+
+  <h2>4) Ranking UF (Top 12)</h2>
+  <table>
+    <thead><tr><th>#</th><th>UF</th><th class="num">Valor</th></tr></thead>
+    <tbody>${topUfsRows || "<tr><td colspan='3'>Sem dados</td></tr>"}</tbody>
+  </table>
+
+  <div class="no-print" style="margin-top:16px; display:flex; gap:8px;">
+    <button onclick="window.print()">Salvar como PDF</button>
+    <button onclick="window.close()">Fechar</button>
+  </div>
+</body>
+</html>`;
+
+      const win = window.open("", "_blank", "noopener,noreferrer");
+      if (!win) {
+        alert("Não foi possível abrir a janela do relatório. Verifique bloqueio de pop-up.");
+        return;
+      }
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+      setTimeout(() => {
+        try {
+          win.focus();
+          win.print();
+        } catch {
+          // ignore print focus issues
+        }
+      }, 350);
+    } finally {
+      setIsExportingReport(false);
+    }
+  }
+
   /** Barras fixas por UF (todas as UFs ou só as selecionadas), ordem estável. */
   const totalsByUfBarChart = useMemo(() => {
     const displayUfs =
@@ -483,25 +665,38 @@ export function PaymentsDashboard({
         className="overflow-hidden rounded-xl bg-white shadow-sm"
       >
         <div className="bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 px-6 py-7 text-white md:px-8 md:py-9">
-          <p className="text-xs font-medium uppercase tracking-wider text-blue-200">
-            Total gasto no concurso (todos os grupos e anos)
-          </p>
-          <p className="mt-2 text-3xl font-bold tabular-nums md:text-5xl">
-            {currency.format(overviewTotals.grandTotal)}
-          </p>
-          {overviewByYear.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {overviewByYear.map((y) => (
-                <span
-                  key={y.ano}
-                  className="rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-blue-50 ring-1 ring-inset ring-white/20"
-                >
-                  {y.ano}:{" "}
-                  <span className="font-semibold tabular-nums">{currency.format(y.total)}</span>
-                </span>
-              ))}
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-blue-200">
+                Total gasto no concurso (todos os grupos e anos)
+              </p>
+              <p className="mt-2 text-3xl font-bold tabular-nums md:text-5xl">
+                {currency.format(overviewTotals.grandTotal)}
+              </p>
+              {overviewByYear.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {overviewByYear.map((y) => (
+                    <span
+                      key={y.ano}
+                      className="rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-blue-50 ring-1 ring-inset ring-white/20"
+                    >
+                      {y.ano}:{" "}
+                      <span className="font-semibold tabular-nums">{currency.format(y.total)}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+            <button
+              type="button"
+              onClick={handleExtractReportPdf}
+              disabled={!isClient || isExportingReport}
+              className="inline-flex items-center justify-center rounded-md border border-blue-200/50 bg-white/10 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Extrai um relatório completo com resumo e comparativos"
+            >
+              {isExportingReport ? "Gerando..." : "Extrair Relatório"}
+            </button>
+          </div>
         </div>
 
         <div className="px-5 py-5 md:px-8 md:py-6">
