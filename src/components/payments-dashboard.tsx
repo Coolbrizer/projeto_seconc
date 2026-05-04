@@ -274,12 +274,6 @@ export function PaymentsDashboard({
     0,
   );
 
-  /** Inscritos em todas as UFs (base nacional para custo/candidato no resumo executivo). */
-  const totalEnrolledNacional = useMemo(
-    () => ALL_UFS.reduce((acc, uf) => acc + (enrolledByUf[uf] ?? 0), 0),
-    [enrolledByUf],
-  );
-
   /** Somatórios consolidados (todos os anos, todos os grupos) — não respeita filtros. */
   const overviewTotals = useMemo(() => {
     const sub = payments
@@ -379,14 +373,11 @@ export function PaymentsDashboard({
 
   const reportGroupsDetail = useMemo(() => {
     const gt = overviewTotals.grandTotal;
-    const te = totalEnrolledNacional;
-    const showCost = !enrolledUnavailable && te > 0;
     return reportGroupsFull.map((r) => ({
       ...r,
       pct: gt > 0 ? (r.total / gt) * 100 : 0,
-      costPerCandidate: showCost ? r.total / te : null,
     }));
-  }, [reportGroupsFull, overviewTotals.grandTotal, totalEnrolledNacional, enrolledUnavailable]);
+  }, [reportGroupsFull, overviewTotals.grandTotal]);
 
   const reportUfTotals = useMemo(() => {
     const map = new Map<string, number>();
@@ -418,12 +409,16 @@ export function PaymentsDashboard({
       const maxUf = Math.max(...reportUfTotals.map((r) => r.total), 0);
       const allReportUfs = reportUfTotals;
       const topUfsRows = allReportUfs
-        .map(
-          (r, idx) =>
-            `<tr><td>${idx + 1}</td><td>${escapeHtml(r.uf)}</td><td class="num">${escapeHtml(
-              currencyFine.format(r.total),
-            )}</td></tr>`,
-        )
+        .map((r, idx) => {
+          const enrolled = enrolledByUf[r.uf] ?? 0;
+          const unit =
+            !enrolledUnavailable && enrolled > 0 ? r.total / enrolled : null;
+          return `<tr><td>${idx + 1}</td><td>${escapeHtml(r.uf)}</td><td class="num">${escapeHtml(
+            currencyFine.format(r.total),
+          )}</td><td class="num">${
+            unit != null ? escapeHtml(currencyFine.format(unit)) : "—"
+          }</td></tr>`;
+        })
         .join("");
       const yearsRows = overviewByYear
         .map(
@@ -436,11 +431,7 @@ export function PaymentsDashboard({
           (g) =>
             `<tr><td>${escapeHtml(g.grupo)}</td><td class="num">${escapeHtml(
               currencyFine.format(g.total),
-            )}</td><td class="num">${escapeHtml(g.pct.toFixed(1).replace(".", ","))}%</td><td class="num">${
-              g.costPerCandidate != null
-                ? escapeHtml(currencyFine.format(g.costPerCandidate))
-                : "—"
-            }</td></tr>`,
+            )}</td><td class="num">${escapeHtml(g.pct.toFixed(1).replace(".", ","))}%</td></tr>`,
         )
         .join("");
       const groupsBars = reportGroupsFull
@@ -514,17 +505,10 @@ export function PaymentsDashboard({
       <tbody>${yearsRows || "<tr><td colspan='2'>Sem dados</td></tr>"}</tbody>
     </table>
     <table>
-      <thead><tr><th>Grupo de despesa</th><th class="num">Valor</th><th class="num">%</th><th class="num">Custo por candidato</th></tr></thead>
-      <tbody>${groupsRows || "<tr><td colspan='4'>Sem dados</td></tr>"}</tbody>
+      <thead><tr><th>Grupo de despesa</th><th class="num">Valor</th><th class="num">%</th></tr></thead>
+      <tbody>${groupsRows || "<tr><td colspan='3'>Sem dados</td></tr>"}</tbody>
     </table>
   </div>
-  ${
-    enrolledUnavailable
-      ? '<p class="section-note">Custo por candidato: base de inscritos (qtd_inscrit_uf) indisponível — coluna com "—".</p>'
-      : totalEnrolledNacional > 0
-        ? `<p class="section-note">Custo por candidato = valor do grupo ÷ ${totalEnrolledNacional.toLocaleString("pt-BR")} inscritos (total nas UFs).</p>`
-        : '<p class="section-note">Custo por candidato: total de inscritos por UF é zero — coluna com "—".</p>'
-  }
 
   <h2>2) Comparativo por Grupo de Despesa</h2>
   <div class="bars">${groupsBars || "<p>Sem dados para comparação.</p>"}</div>
@@ -535,9 +519,15 @@ export function PaymentsDashboard({
   <p class="section-note">Todas as UFs com pagamento em Subcomissões Estaduais, ordenadas pelo valor (maior → menor).</p>
 
   <h2>4) Ranking UF (completo)</h2>
+  <p class="section-note">Custo por candidato = total pago à UF (Subcomissões Estaduais) ÷ inscritos da UF em <span style="font-family:monospace">qtd_inscrit_uf</span>.</p>
+  ${
+    enrolledUnavailable
+      ? '<p class="section-note">Inscritos indisponíveis — coluna &quot;Custo por candidato&quot; com &quot;—&quot;.</p>'
+      : ""
+  }
   <table>
-    <thead><tr><th>#</th><th>UF</th><th class="num">Valor</th></tr></thead>
-    <tbody>${topUfsRows || "<tr><td colspan='3'>Sem dados</td></tr>"}</tbody>
+    <thead><tr><th>#</th><th>UF</th><th class="num">Valor</th><th class="num">Custo por candidato</th></tr></thead>
+    <tbody>${topUfsRows || "<tr><td colspan='4'>Sem dados</td></tr>"}</tbody>
   </table>
 
   <div class="no-print" style="margin-top:16px; display:flex; gap:8px;">
@@ -825,19 +815,15 @@ export function PaymentsDashboard({
           <div className="mt-6">
             <h3 className="mb-2 text-sm font-semibold text-slate-900">Resumo executivo por grupo</h3>
             <p className="mb-3 text-xs text-slate-500">
-              Percentual sobre o total geral do concurso. Custo por candidato = valor do grupo ÷ total de
-              inscritos (todas as UFs).
+              Percentual sobre o total geral do concurso (todos os grupos e anos).
             </p>
             <div className="overflow-x-auto rounded-lg border border-slate-200">
-              <table className="w-full min-w-[36rem] border-collapse text-sm">
+              <table className="w-full min-w-[20rem] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-left">
                     <th className="px-3 py-2 font-medium text-slate-700">Grupo de despesa</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-700">Valor</th>
                     <th className="px-3 py-2 text-right font-medium text-slate-700">%</th>
-                    <th className="px-3 py-2 text-right font-medium text-slate-700">
-                      Custo por candidato
-                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -850,19 +836,10 @@ export function PaymentsDashboard({
                       <td className="px-3 py-2 text-right tabular-nums text-slate-700">
                         {g.pct.toFixed(1).replace(".", ",")}%
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-slate-700">
-                        {g.costPerCandidate != null ? currencyFine.format(g.costPerCandidate) : "—"}
-                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {enrolledUnavailable && (
-                <p className="border-t border-slate-100 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                  Custo por candidato indisponível sem leitura da tabela{" "}
-                  <code className="rounded bg-amber-100 px-1">qtd_inscrit_uf</code> no Supabase.
-                </p>
-              )}
             </div>
           </div>
         </div>
