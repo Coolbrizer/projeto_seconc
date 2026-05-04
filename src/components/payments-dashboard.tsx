@@ -384,6 +384,15 @@ export function PaymentsDashboard({
 
   function handleExtractReportPdf() {
     if (!isClient) return;
+    // Abrir janela na primeira linha síncrona do clique — senão o Chrome bloqueia mesmo com pop-ups liberados.
+    const win = window.open("about:blank", "_blank");
+    if (!win) {
+      alert(
+        "Não foi possível abrir a janela do relatório (bloqueio de pop-up ou política do navegador). " +
+          "Tente novamente ou use outro navegador.",
+      );
+      return;
+    }
     setIsExportingReport(true);
     try {
       const now = new Date();
@@ -510,11 +519,6 @@ export function PaymentsDashboard({
 </body>
 </html>`;
 
-      const win = window.open("", "_blank", "noopener,noreferrer");
-      if (!win) {
-        alert("Não foi possível abrir a janela do relatório. Verifique bloqueio de pop-up.");
-        return;
-      }
       win.document.open();
       win.document.write(html);
       win.document.close();
