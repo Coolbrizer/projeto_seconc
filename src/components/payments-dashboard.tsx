@@ -6,8 +6,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -698,17 +696,6 @@ export function PaymentsDashboard({
     return rows;
   }, [unitPerUfRows, unitChartSort]);
 
-  const totalsByMonth = useMemo(() => {
-    const grouped = new Map<string, number>();
-    filteredPayments.forEach((item) => {
-      const month = item.reference_month.slice(0, 7);
-      grouped.set(month, (grouped.get(month) ?? 0) + item.amount);
-    });
-    return Array.from(grouped.entries())
-      .map(([month, amount]) => ({ month, amount }))
-      .sort((a, b) => a.month.localeCompare(b.month));
-  }, [filteredPayments]);
-
   const coordTotalsByMonth = useMemo(() => {
     const grouped = new Map<string, number>();
     coordOnlyFilteredPayments.forEach((item) => {
@@ -958,12 +945,6 @@ export function PaymentsDashboard({
           className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
         >
           Despesa por Inscrito
-        </a>
-        <a
-          href="#detalhe-evolucao"
-          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
-        >
-          Evolução mensal
         </a>
       </nav>
 
@@ -1506,26 +1487,6 @@ export function PaymentsDashboard({
             <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-500">
               Nenhum registro de banca para o ano selecionado ou tabela vazia / sem permissão de leitura.
             </p>
-          )}
-        </div>
-      </article>
-
-      <article id="detalhe-evolucao" className="rounded-xl bg-white p-4 shadow-sm scroll-mt-20">
-        <h2 className="mb-3 text-base font-semibold text-slate-900">Evolução mensal</h2>
-        <div className="h-80">
-          {isClient && (
-            <ResponsiveContainer width="98%" height="100%">
-              <LineChart data={totalsByMonth} margin={{ left: 20, right: 8, top: 8, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="month" tickFormatter={monthLabel} />
-                <YAxis tickFormatter={formatCurrency} width={84} />
-                <Tooltip
-                  formatter={formatCurrency}
-                  labelFormatter={(label) => monthLabel(label)}
-                />
-                <Line dataKey="amount" type="monotone" stroke="#0d9488" strokeWidth={3} />
-              </LineChart>
-            </ResponsiveContainer>
           )}
         </div>
       </article>
