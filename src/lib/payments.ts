@@ -1,5 +1,6 @@
 import { getSupabase } from "@/lib/supabase";
 import type {
+  AssessoriaPaymentRecord,
   BancaPaymentRecord,
   ComissaoMedicaPaymentRecord,
   DashboardData,
@@ -106,6 +107,31 @@ const UF_COLUMN_KEYS = [
 ];
 
 const SKIP_NON_MONTH_KEYS = new Set(UF_COLUMN_KEYS.map((k) => k.toLowerCase()));
+
+const ASSESSORIA_SKIP_KEYS = new Set(["id", "uf", "created_at", "updated_at"].map((k) => k.toLowerCase()));
+
+/** Lê colunas `mai./25` etc. nas tabelas pgto_assessoria_*. */
+function normalizeAssessoriaWideRows(rows: Array<Record<string, unknown>>): AssessoriaPaymentRecord[] {
+  const records: AssessoriaPaymentRecord[] = [];
+  let rowIdx = 0;
+  for (const row of rows) {
+    rowIdx += 1;
+    Object.entries(row).forEach(([columnName, value]) => {
+      const colLower = columnName.trim().toLowerCase();
+      if (ASSESSORIA_SKIP_KEYS.has(colLower)) return;
+      const referenceMonth = monthColumnToIsoDate(columnName);
+      if (!referenceMonth) return;
+      const amount = toNumericValue(value);
+      if (amount <= 0) return;
+      records.push({
+        id: `assessoria-${referenceMonth}-${rowIdx}`,
+        reference_month: referenceMonth,
+        amount,
+      });
+    });
+  }
+  return records;
+}
 
 function getUfFromRow(row: Record<string, unknown>): string {
   for (const key of UF_COLUMN_KEYS) {
@@ -340,6 +366,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       fiscalizacaoPayments: [],
       comissaoMedicaPayments: [],
       execucaoPayments: [],
+      assessoriaPayments: [],
       enrolledByUf: {},
       dataNotice: "missing_supabase",
     };
@@ -357,6 +384,7 @@ export async function getDashboardData(): Promise<DashboardData> {
         fiscalizacaoPayments: [],
         comissaoMedicaPayments: [],
         execucaoPayments: [],
+        assessoriaPayments: [],
         enrolledByUf: {},
         dataNotice: "supabase_fetch_error",
       };
@@ -411,6 +439,27 @@ export async function getDashboardData(): Promise<DashboardData> {
     );
   }
 
+  let assessoriaPayments: AssessoriaPaymentRecord[] = [];
+  const assessoria2025 = await supabase.from("pgto_assessoria_2025").select("*");
+  const assessoria2026 = await supabase.from("pgto_assessoria_2026").select("*");
+  if (assessoria2025.error) {
+    console.error("Erro ao buscar pgto_assessoria_2025:", assessoria2025.error.message);
+  }
+  if (assessoria2026.error) {
+    console.error("Erro ao buscar pgto_assessoria_2026:", assessoria2026.error.message);
+  }
+  if (!assessoria2025.error) {
+    assessoriaPayments.push(
+      ...normalizeAssessoriaWideRows((assessoria2025.data ?? []) as Array<Record<string, unknown>>),
+    );
+  }
+  if (!assessoria2026.error) {
+    assessoriaPayments.push(
+      ...normalizeAssessoriaWideRows((assessoria2026.data ?? []) as Array<Record<string, unknown>>),
+    );
+  }
+  assessoriaPayments.sort((a, b) => a.reference_month.localeCompare(b.reference_month));
+
   const { data: enrolledRows, error: enrolledError } = await supabase
     .from("qtd_inscrit_uf")
     .select("*");
@@ -423,6 +472,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       fiscalizacaoPayments,
       comissaoMedicaPayments,
       execucaoPayments,
+      assessoriaPayments,
       enrolledByUf: {},
       enrolledUnavailable: true,
     };
@@ -444,6 +494,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     fiscalizacaoPayments,
     comissaoMedicaPayments,
     execucaoPayments,
+    assessoriaPayments,
     enrolledByUf,
   };
 }

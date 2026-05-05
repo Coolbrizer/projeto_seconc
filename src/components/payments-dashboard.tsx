@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import type {
+  AssessoriaPaymentRecord,
   BancaPaymentRecord,
   ComissaoMedicaPaymentRecord,
   DashboardDataNotice,
@@ -28,6 +29,7 @@ type PaymentsDashboardProps = {
   fiscalizacaoPayments: FiscalizacaoPaymentRecord[];
   comissaoMedicaPayments: ComissaoMedicaPaymentRecord[];
   execucaoPayments: ExecucaoPaymentRecord[];
+  assessoriaPayments: AssessoriaPaymentRecord[];
   enrolledByUf: Record<string, number>;
   dataNotice?: DashboardDataNotice;
   enrolledUnavailable?: boolean;
@@ -154,6 +156,7 @@ export function PaymentsDashboard({
   fiscalizacaoPayments,
   comissaoMedicaPayments,
   execucaoPayments,
+  assessoriaPayments,
   enrolledByUf,
   dataNotice,
   enrolledUnavailable,
@@ -268,6 +271,23 @@ export function PaymentsDashboard({
     [comissaoChartRows],
   );
 
+  const assessoriaChartRows = useMemo(() => {
+    const rows = assessoriaPayments.filter((r) => {
+      const ano = Number(r.reference_month.slice(0, 4));
+      return matchesDashboardYear(ano, selectedYear);
+    });
+    rows.sort((a, b) => a.reference_month.localeCompare(b.reference_month));
+    return rows.map((r) => ({
+      ...r,
+      mesLabel: monthLabel(r.reference_month.slice(0, 7)),
+    }));
+  }, [assessoriaPayments, selectedYear]);
+
+  const assessoriaTotalFiltered = useMemo(
+    () => assessoriaChartRows.reduce((acc, r) => acc + r.amount, 0),
+    [assessoriaChartRows],
+  );
+
   const totalValue = filteredPayments.reduce((acc, item) => acc + item.amount, 0);
   const totalEnrolled = (selectedUfs.length === 0 ? [...ALL_UFS] : selectedUfs).reduce(
     (acc, uf) => acc + (enrolledByUf[uf] ?? 0),
@@ -286,9 +306,10 @@ export function PaymentsDashboard({
     const fiscal = fiscalizacaoPayments.reduce((acc, r) => acc + r.amount, 0);
     const comissao = comissaoMedicaPayments.reduce((acc, r) => acc + r.amount, 0);
     const execucao = execucaoPayments.reduce((acc, r) => acc + r.amount, 0);
-    const grandTotal = sub + coord + banca + fiscal + comissao + execucao;
-    return { sub, coord, banca, fiscal, comissao, execucao, grandTotal };
-  }, [payments, bancaPayments, fiscalizacaoPayments, comissaoMedicaPayments, execucaoPayments]);
+    const assessoria = assessoriaPayments.reduce((acc, r) => acc + r.amount, 0);
+    const grandTotal = sub + coord + banca + fiscal + comissao + execucao + assessoria;
+    return { sub, coord, banca, fiscal, comissao, execucao, assessoria, grandTotal };
+  }, [payments, bancaPayments, fiscalizacaoPayments, comissaoMedicaPayments, execucaoPayments, assessoriaPayments]);
 
   const overviewByYear = useMemo(() => {
     const acc = new Map<number, number>();
@@ -301,14 +322,18 @@ export function PaymentsDashboard({
     for (const r of fiscalizacaoPayments) add(r.ano, r.amount);
     for (const r of comissaoMedicaPayments) add(r.ano, r.amount);
     for (const r of execucaoPayments) add(r.ano, r.amount);
+    for (const r of assessoriaPayments) {
+      const y = Number(r.reference_month.slice(0, 4));
+      if (Number.isFinite(y)) add(y, r.amount);
+    }
     return [...acc.entries()]
       .filter(([, v]) => v > 0)
       .sort((a, b) => a[0] - b[0])
       .map(([ano, total]) => ({ ano, total }));
-  }, [payments, bancaPayments, fiscalizacaoPayments, comissaoMedicaPayments, execucaoPayments]);
+  }, [payments, bancaPayments, fiscalizacaoPayments, comissaoMedicaPayments, execucaoPayments, assessoriaPayments]);
 
   const overviewGroups = useMemo(() => {
-    const { sub, coord, fiscal, banca, comissao, grandTotal } = overviewTotals;
+    const { sub, coord, fiscal, banca, comissao, assessoria, grandTotal } = overviewTotals;
     const pct = (v: number) => (grandTotal > 0 ? (v / grandTotal) * 100 : 0);
     // Execução entra no somatório total, mas não é apresentada como grupo nos gráficos/cards.
     return [
@@ -347,6 +372,13 @@ export function PaymentsDashboard({
         color: "#c2410c",
         anchor: "#detalhe-comissao-especial",
       },
+      {
+        grupo: "Assessoria Especial",
+        total: assessoria,
+        pct: pct(assessoria),
+        color: "#7c3aed",
+        anchor: "#detalhe-assessoria-especial",
+      },
     ];
   }, [overviewTotals]);
 
@@ -367,6 +399,7 @@ export function PaymentsDashboard({
       { grupo: "Aplicação de Prova", total: overviewTotals.fiscal },
       { grupo: "Banca Examinadora", total: overviewTotals.banca },
       { grupo: "Comissão Especial de Avaliação", total: overviewTotals.comissao },
+      { grupo: "Assessoria Especial", total: overviewTotals.assessoria },
     ];
     return rows.sort((a, b) => b.total - a.total);
   }, [overviewTotals]);
@@ -512,7 +545,7 @@ export function PaymentsDashboard({
 
   <h2>2) Comparativo por Grupo de Despesa</h2>
   <div class="bars">${groupsBars || "<p>Sem dados para comparação.</p>"}</div>
-  <p class="section-note">Inclui: Subcomissões Estaduais, Coordenação Nacional, Execução, Aplicação de Prova, Banca Examinadora e Comissão Especial de Avaliação.</p>
+  <p class="section-note">Inclui: Subcomissões Estaduais, Coordenação Nacional, Execução, Aplicação de Prova, Banca Examinadora, Comissão Especial de Avaliação e Assessoria Especial.</p>
 
   <h2>3) Comparativo por UF (Subcomissões Estaduais)</h2>
   <div class="bars">${ufBars || "<p>Sem dados por UF.</p>"}</div>
@@ -873,6 +906,12 @@ export function PaymentsDashboard({
           className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
         >
           Comissão Especial
+        </a>
+        <a
+          href="#detalhe-assessoria-especial"
+          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-slate-700 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-900"
+        >
+          Assessoria Especial
         </a>
         <a
           href="#detalhe-banca"
@@ -1282,6 +1321,58 @@ export function PaymentsDashboard({
           {isClient && comissaoChartRows.length === 0 && (
             <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-500">
               Nenhum registro para o ano selecionado ou tabela vazia / sem permissão de leitura.
+            </p>
+          )}
+        </div>
+      </article>
+
+      <article
+        id="detalhe-assessoria-especial"
+        className="rounded-xl bg-white p-4 shadow-sm scroll-mt-20 md:p-6"
+      >
+        <h2 className="mb-2 text-lg font-semibold text-slate-900">Assessoria Especial</h2>
+        <p className="mb-4 text-sm text-slate-600">
+          Valores das tabelas{" "}
+          <code className="rounded bg-slate-100 px-1">pgto_assessoria_2025</code> e{" "}
+          <code className="rounded bg-slate-100 px-1">pgto_assessoria_2026</code> (colunas mensais no formato{" "}
+          <code className="rounded bg-slate-100 px-1">mai./25</code>). Usa o mesmo filtro <strong>Ano</strong> de
+          &quot;Pagamentos das Subcomissões Estaduais&quot;.
+        </p>
+        <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Total no período filtrado</p>
+          <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+            {formatCurrency(assessoriaTotalFiltered)}
+          </p>
+        </div>
+        <div className="h-[min(22rem,55vh)] w-full min-h-[14rem]">
+          {isClient && assessoriaChartRows.length > 0 && (
+            <ResponsiveContainer width="98%" height="100%">
+              <BarChart data={assessoriaChartRows} margin={{ left: 12, right: 8, top: 8, bottom: 48 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="mesLabel" interval={0} tick={{ fontSize: 11 }} height={48} />
+                <YAxis tickFormatter={(v) => formatCurrency(v)} width={84} />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.[0]) return null;
+                    const p = payload[0].payload as AssessoriaPaymentRecord & { mesLabel: string };
+                    return (
+                      <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
+                        <p className="font-medium text-slate-900">{p.mesLabel}</p>
+                        <p className="mt-1 text-violet-900">{formatCurrency(p.amount)}</p>
+                        <p className="text-slate-500">
+                          Ano: {p.reference_month.slice(0, 4)}
+                        </p>
+                      </div>
+                    );
+                  }}
+                />
+                <Bar dataKey="amount" name="Valor" fill="#7c3aed" radius={[6, 6, 0, 0]} maxBarSize={56} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+          {isClient && assessoriaChartRows.length === 0 && (
+            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-500">
+              Nenhum registro para o ano selecionado ou tabelas vazias / sem permissão de leitura.
             </p>
           )}
         </div>

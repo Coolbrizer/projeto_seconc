@@ -40,6 +40,14 @@ export type ExecucaoPaymentRecord = {
   amount: number;
 };
 
+/** Colunas mensais largas em `pgto_assessoria_2025` / `pgto_assessoria_2026`. */
+export type AssessoriaPaymentRecord = {
+  id: string;
+  /** Primeiro dia do mês (yyyy-mm-dd). */
+  reference_month: string;
+  amount: number;
+};
+
 export type DashboardDataNotice = "missing_supabase" | "supabase_fetch_error";
 
 export type DashboardData = {
@@ -52,6 +60,8 @@ export type DashboardData = {
   comissaoMedicaPayments: ComissaoMedicaPaymentRecord[];
   /** Execução do concurso (`pgto_execucao`). */
   execucaoPayments: ExecucaoPaymentRecord[];
+  /** Assessoria especial (planilhas mensais por ano). */
+  assessoriaPayments: AssessoriaPaymentRecord[];
   enrolledByUf: Record<string, number>;
   /** Quando não há dados reais ou falhou leitura (evita confundir com demo). */
   dataNotice?: DashboardDataNotice;
