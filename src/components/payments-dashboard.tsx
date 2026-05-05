@@ -495,6 +495,14 @@ export function PaymentsDashboard({
   <title>Relatório Financeiro - 31º CPR</title>
   <style>
     * { box-sizing: border-box; font-family: Arial, sans-serif; }
+    /* impressão/PDF: sem isto o Chrome remove backgrounds e as barras somem */
+    .bar,
+    .bar-wrap,
+    .hero,
+    th {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
     body { margin: 20px; color: #0f172a; }
     h1 { margin: 0 0 6px; font-size: 24px; }
     h2 { margin: 22px 0 10px; font-size: 16px; }
@@ -516,6 +524,10 @@ export function PaymentsDashboard({
     .bar-value { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
     .section-note { font-size: 11px; color: #475569; margin-top: 6px; }
     @media print {
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
       body { margin: 10mm; }
       .no-print { display: none; }
       h2 { page-break-after: avoid; }
