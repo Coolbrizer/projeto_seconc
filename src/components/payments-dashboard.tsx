@@ -441,15 +441,35 @@ export function PaymentsDashboard({
       const maxGroup = Math.max(...reportGroupsFull.map((r) => r.total), 0);
       const maxUf = Math.max(...reportUfTotals.map((r) => r.total), 0);
       const allReportUfs = reportUfTotals;
-      const topUfsRows = allReportUfs
+      const rankingUfByUnit = allReportUfs.map((r) => {
+        const enrolled = enrolledByUf[r.uf] ?? 0;
+        const unitCost =
+          !enrolledUnavailable && enrolled > 0 ? r.total / enrolled : null;
+        return { ...r, unitCost };
+      });
+      rankingUfByUnit.sort((a, b) => {
+        const au = a.unitCost;
+        const bu = b.unitCost;
+        if (au != null && bu != null) return au - bu;
+        if (au != null && bu == null) return -1;
+        if (au == null && bu != null) return 1;
+        return a.uf.localeCompare(b.uf, "pt-BR");
+      });
+      const maxUnitCost = Math.max(
+        0,
+        ...rankingUfByUnit.map((r) => (r.unitCost != null ? r.unitCost : 0)),
+      );
+      const topUfsRows = rankingUfByUnit
         .map((r, idx) => {
-          const enrolled = enrolledByUf[r.uf] ?? 0;
-          const unit =
-            !enrolledUnavailable && enrolled > 0 ? r.total / enrolled : null;
-          return `<tr><td>${idx + 1}</td><td>${escapeHtml(r.uf)}</td><td class="num">${escapeHtml(
-            currencyFine.format(r.total),
-          )}</td><td class="num">${
-            unit != null ? escapeHtml(currencyFine.format(unit)) : "—"
+          const w =
+            maxUnitCost > 0 && r.unitCost != null
+              ? (r.unitCost / maxUnitCost) * 100
+              : 0;
+          const barCell = `<div class="bar-wrap bar-wrap--table"><div class="bar bar-uf" style="width:${w.toFixed(2)}%"></div></div>`;
+          return `<tr><td class="num">${idx + 1}</td><td>${escapeHtml(r.uf)}</td><td class="rank-bar-cell">${barCell}</td><td class="num">${
+            r.unitCost != null
+              ? escapeHtml(currencyFine.format(r.unitCost))
+              : "—"
           }</td></tr>`;
         })
         .join("");
@@ -522,6 +542,8 @@ export function PaymentsDashboard({
     .bar { height: 100%; background: #1d4ed8; }
     .bar-uf { background: #0f766e; }
     .bar-value { text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+    td.rank-bar-cell { min-width: 140px; width: 40%; vertical-align: middle; padding: 8px 10px; }
+    .bar-wrap--table { width: 100%; min-width: 100px; }
     .section-note { font-size: 11px; color: #475569; margin-top: 6px; }
     @media print {
       * {
@@ -564,14 +586,14 @@ export function PaymentsDashboard({
   <p class="section-note">Todas as UFs com pagamento em Subcomissões Estaduais, ordenadas pelo valor (maior → menor).</p>
 
   <h2>4) Ranking UF (completo)</h2>
-  <p class="section-note">Custo por candidato = total pago à UF (Subcomissões Estaduais) ÷ inscritos da UF em <span style="font-family:monospace">qtd_inscrit_uf</span>.</p>
+  <p class="section-note">Ordenação: <strong>crescente</strong> por custo por candidato (R$ pagos à UF em Subcomissões Estaduais ÷ inscritos da UF em <span style="font-family:monospace">qtd_inscrit_uf</span>). A barra é proporcional ao custo por candidato da UF (maior preenchimento = maior R$/inscrito).</p>
   ${
     enrolledUnavailable
-      ? '<p class="section-note">Inscritos indisponíveis — coluna &quot;Custo por candidato&quot; com &quot;—&quot;.</p>'
+      ? '<p class="section-note">Inscritos indisponíveis — custo por candidato e barras não calculados (&quot;—&quot;).</p>'
       : ""
   }
   <table>
-    <thead><tr><th>#</th><th>UF</th><th class="num">Valor</th><th class="num">Custo por candidato</th></tr></thead>
+    <thead><tr><th class="num">#</th><th>UF</th><th>Gráfico (proporção R$/inscrito)</th><th class="num">Custo por candidato</th></tr></thead>
     <tbody>${topUfsRows || "<tr><td colspan='4'>Sem dados</td></tr>"}</tbody>
   </table>
 
