@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import type {
+  ArrecadacaoSnapshot,
   AssessoriaPaymentRecord,
   BancaPaymentRecord,
   ComissaoMedicaPaymentRecord,
@@ -28,6 +29,7 @@ type PaymentsDashboardProps = {
   comissaoMedicaPayments: ComissaoMedicaPaymentRecord[];
   execucaoPayments: ExecucaoPaymentRecord[];
   assessoriaPayments: AssessoriaPaymentRecord[];
+  arrecadacao?: ArrecadacaoSnapshot | null;
   enrolledByUf: Record<string, number>;
   dataNotice?: DashboardDataNotice;
   enrolledUnavailable?: boolean;
@@ -155,6 +157,7 @@ export function PaymentsDashboard({
   comissaoMedicaPayments,
   execucaoPayments,
   assessoriaPayments,
+  arrecadacao,
   enrolledByUf,
   dataNotice,
   enrolledUnavailable,
@@ -760,6 +763,26 @@ export function PaymentsDashboard({
                       <span className="font-semibold tabular-nums">{currency.format(y.total)}</span>
                     </span>
                   ))}
+                </div>
+              )}
+              {arrecadacao && (
+                <div className="mt-6 border-t border-white/20 pt-5">
+                  <p className="text-xs font-medium uppercase tracking-wider text-emerald-200">
+                    Arrecadação prevista — inscrições (referência cadastrada)
+                  </p>
+                  <p className="mt-2 text-xl font-bold tabular-nums text-emerald-100 md:text-2xl">
+                    {currency.format(arrecadacao.totalPrevistoArrecadacao)}
+                  </p>
+                  <p className="mt-2 max-w-xl text-xs leading-relaxed text-blue-50/95">
+                    {arrecadacao.totalInscritos.toLocaleString("pt-BR")} inscritos totais ·{" "}
+                    {arrecadacao.isencoesDeferidas.toLocaleString("pt-BR")} isenções deferidas ·{" "}
+                    {arrecadacao.inscritosPagantes.toLocaleString("pt-BR")} pagantes ×{" "}
+                    {currencyFine.format(arrecadacao.valorInscricao)} por inscrição
+                  </p>
+                  <p className="mt-2 text-[11px] text-blue-100/75">
+                    Dados na tabela <code className="rounded bg-white/10 px-1">arrecadacao</code> — não integram o
+                    total de <strong>despesa</strong> acima.
+                  </p>
                 </div>
               )}
             </div>

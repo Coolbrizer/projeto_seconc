@@ -48,6 +48,18 @@ export type AssessoriaPaymentRecord = {
   amount: number;
 };
 
+/** Parâmetros de arrecadação com inscrições (`arrecadacao`) — não é despesa. */
+export type ArrecadacaoSnapshot = {
+  nome: string;
+  totalInscritos: number;
+  isencoesDeferidas: number;
+  valorInscricao: number;
+  /** Inscritos menos isenções deferidas (valor estimado cobrado). */
+  inscritosPagantes: number;
+  /** inscritosPagantes × valorInscricao */
+  totalPrevistoArrecadacao: number;
+};
+
 export type DashboardDataNotice = "missing_supabase" | "supabase_fetch_error";
 
 export type DashboardData = {
@@ -62,6 +74,8 @@ export type DashboardData = {
   execucaoPayments: ExecucaoPaymentRecord[];
   /** Assessoria especial (planilhas mensais por ano). */
   assessoriaPayments: AssessoriaPaymentRecord[];
+  /** Arrecadação por inscrição (referência cadastrada; não misturar com despesas). */
+  arrecadacao?: ArrecadacaoSnapshot | null;
   enrolledByUf: Record<string, number>;
   /** Quando não há dados reais ou falhou leitura (evita confundir com demo). */
   dataNotice?: DashboardDataNotice;

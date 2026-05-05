@@ -137,3 +137,33 @@ on conflict (uf) do update set
   "fev./26" = excluded."fev./26",
   "mar./26" = excluded."mar./26",
   "abr./26" = excluded."abr./26";
+
+-- Arrecadação com inscrições (não é despesa): parâmetros do concurso.
+create table if not exists public.arrecadacao (
+  id uuid primary key default gen_random_uuid(),
+  nome text not null default '31º CPR',
+  total_inscritos int not null check (total_inscritos >= 0),
+  isencoes_deferidas int not null check (isencoes_deferidas >= 0),
+  valor_inscricao numeric(14, 2) not null check (valor_inscricao >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint arrecadacao_isencoes_lte_total check (isencoes_deferidas <= total_inscritos),
+  constraint arrecadacao_nome_unique unique (nome)
+);
+
+alter table public.arrecadacao enable row level security;
+
+drop policy if exists "Leitura publica arrecadacao" on public.arrecadacao;
+create policy "Leitura publica arrecadacao"
+  on public.arrecadacao
+  for select
+  to anon, authenticated
+  using (true);
+
+insert into public.arrecadacao (nome, total_inscritos, isencoes_deferidas, valor_inscricao)
+values ('31º CPR', 10372, 2565, 250.00)
+on conflict (nome) do update set
+  total_inscritos = excluded.total_inscritos,
+  isencoes_deferidas = excluded.isencoes_deferidas,
+  valor_inscricao = excluded.valor_inscricao,
+  updated_at = now();

@@ -1,5 +1,6 @@
 import { getSupabase } from "@/lib/supabase";
 import type {
+  ArrecadacaoSnapshot,
   AssessoriaPaymentRecord,
   BancaPaymentRecord,
   ComissaoMedicaPaymentRecord,
@@ -335,6 +336,30 @@ function normalizeComissaoMedicaRows(rows: Array<Record<string, unknown>>): Comi
   return records;
 }
 
+/** Linha única esperada na tabela `arrecadacao` (nome padrão 31º CPR). */
+function normalizeArrecadacaoRow(row: Record<string, unknown>): ArrecadacaoSnapshot | null {
+  const nomeRaw = row.nome ?? row.NOME;
+  const nome = typeof nomeRaw === "string" && nomeRaw.trim() ? nomeRaw.trim() : "31º CPR";
+  const ti = parseInscritoCount(row.total_inscritos ?? row.Total_Inscritos ?? row.total_Inscritos);
+  const isen = parseInscritoCount(
+    row.isencoes_deferidas ?? row.Isencoes_Deferidas ?? row.isencões_deferidas,
+  );
+  const valorRaw = row.valor_inscricao ?? row.Valor_Inscricao;
+  const valorInscricao = toNumericValue(valorRaw);
+  if (ti < 1 || isen < 0 || valorInscricao <= 0) return null;
+  if (isen > ti) return null;
+  const inscritosPagantes = ti - isen;
+  const totalPrevistoArrecadacao = Math.round(inscritosPagantes * valorInscricao * 100) / 100;
+  return {
+    nome,
+    totalInscritos: ti,
+    isencoesDeferidas: isen,
+    valorInscricao,
+    inscritosPagantes,
+    totalPrevistoArrecadacao,
+  };
+}
+
 function getQtdInscritFromRow(row: Record<string, unknown>): number | null {
   const keys = [
     "qtd_inscrit",
@@ -367,6 +392,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       comissaoMedicaPayments: [],
       execucaoPayments: [],
       assessoriaPayments: [],
+      arrecadacao: null,
       enrolledByUf: {},
       dataNotice: "missing_supabase",
     };
@@ -385,6 +411,7 @@ export async function getDashboardData(): Promise<DashboardData> {
         comissaoMedicaPayments: [],
         execucaoPayments: [],
         assessoriaPayments: [],
+        arrecadacao: null,
         enrolledByUf: {},
         dataNotice: "supabase_fetch_error",
       };
@@ -460,6 +487,14 @@ export async function getDashboardData(): Promise<DashboardData> {
   }
   assessoriaPayments.sort((a, b) => a.reference_month.localeCompare(b.reference_month));
 
+  let arrecadacao: ArrecadacaoSnapshot | null = null;
+  const arrecResult = await supabase.from("arrecadacao").select("*").maybeSingle();
+  if (arrecResult.error) {
+    console.error("Erro ao buscar arrecadacao:", arrecResult.error.message);
+  } else if (arrecResult.data) {
+    arrecadacao = normalizeArrecadacaoRow(arrecResult.data as Record<string, unknown>);
+  }
+
   const { data: enrolledRows, error: enrolledError } = await supabase
     .from("qtd_inscrit_uf")
     .select("*");
@@ -473,6 +508,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       comissaoMedicaPayments,
       execucaoPayments,
       assessoriaPayments,
+      arrecadacao,
       enrolledByUf: {},
       enrolledUnavailable: true,
     };
@@ -495,6 +531,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     comissaoMedicaPayments,
     execucaoPayments,
     assessoriaPayments,
+    arrecadacao,
     enrolledByUf,
   };
 }
