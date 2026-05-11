@@ -17,7 +17,7 @@ type SessionPayload = {
 const AUTH_USERS: Array<AuthUser & { password: string }> = [
   {
     email: "alexandredamasceno@mpf.mp.br",
-    password: "31cpr2026",
+    password: "Rpvl2027@",
     role: "gestor",
   },
   {
