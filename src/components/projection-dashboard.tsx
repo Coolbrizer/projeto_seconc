@@ -92,6 +92,99 @@ type Group = {
 
 type SortMode = "custo-desc" | "custo-asc" | "valor-desc" | "valor-asc" | "uf-asc";
 
+/** Cenário salvo (persistido em localStorage). Apenas a partição é guardada. */
+type SavedScenario = {
+  id: string;
+  name: string;
+  createdAt: number;
+  partition: string[][];
+};
+
+const SCENARIOS_STORAGE_KEY = "seconc:projection-scenarios:v1";
+
+/** Métricas usadas no comparativo entre cenários. */
+type ScenarioMetrics = {
+  id: string;
+  name: string;
+  kind: "baseline" | "current" | "saved";
+  createdAt?: number;
+  unidades: number;
+  polos: number;
+  individuais: number;
+  inscritos: number;
+  valor: number;
+  custoMedio: number | null;
+  custoMin: { value: number; label: string } | null;
+  custoMax: { value: number; label: string } | null;
+};
+
+function computeScenarioMetrics(
+  partition: string[][],
+  ufStats: Record<string, UfStats>,
+  name: string,
+  id: string,
+  kind: ScenarioMetrics["kind"],
+  createdAt?: number,
+): ScenarioMetrics {
+  const built = partition.map((m) => buildGroupFromMembers(m, ufStats));
+  let inscritos = 0;
+  let valor = 0;
+  let polos = 0;
+  const custos: { value: number; label: string }[] = [];
+  for (const g of built) {
+    inscritos += g.inscritos;
+    valor += g.valor;
+    if (g.isPolo) polos += 1;
+    if (g.custoPorCandidato != null) {
+      custos.push({ value: g.custoPorCandidato, label: g.label });
+    }
+  }
+  return {
+    id,
+    name,
+    kind,
+    createdAt,
+    unidades: built.length,
+    polos,
+    individuais: built.length - polos,
+    inscritos,
+    valor,
+    custoMedio: inscritos > 0 ? valor / inscritos : null,
+    custoMin:
+      custos.length > 0
+        ? custos.reduce((a, b) => (b.value < a.value ? b : a))
+        : null,
+    custoMax:
+      custos.length > 0
+        ? custos.reduce((a, b) => (b.value > a.value ? b : a))
+        : null,
+  };
+}
+
+/** Sanitiza partição vinda do storage: garante todas as UFs presentes e sem duplicatas. */
+function sanitizePartition(input: unknown): string[][] {
+  if (!Array.isArray(input)) return ALL_UFS.map((u) => [u]);
+  const seen = new Set<string>();
+  const clean: string[][] = [];
+  const allUfs = new Set<string>(ALL_UFS);
+  for (const grp of input) {
+    if (!Array.isArray(grp)) continue;
+    const filtered: string[] = [];
+    for (const uf of grp) {
+      if (typeof uf !== "string") continue;
+      const up = uf.toUpperCase();
+      if (!allUfs.has(up) || seen.has(up)) continue;
+      filtered.push(up);
+      seen.add(up);
+    }
+    if (filtered.length > 0) clean.push(filtered);
+  }
+  for (const uf of ALL_UFS) {
+    if (!seen.has(uf)) clean.push([uf]);
+  }
+  return clean;
+}
+
 function buildUfStats(
   payments: PaymentRecord[],
   enrolledByUf: Record<string, number>,
@@ -224,6 +317,53 @@ export function ProjectionDashboard({
 
   const [sortMode, setSortMode] = useState<SortMode>("custo-desc");
 
+  /** Cenários salvos (persistência em localStorage). */
+  const [scenarios, setScenarios] = useState<SavedScenario[]>([]);
+  const [savingScenario, setSavingScenario] = useState(false);
+  const [scenarioNameDraft, setScenarioNameDraft] = useState("");
+
+  // Carrega cenários do localStorage (apenas no cliente).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(SCENARIOS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return;
+      const valid: SavedScenario[] = [];
+      for (const item of parsed) {
+        if (!item || typeof item !== "object") continue;
+        const obj = item as Record<string, unknown>;
+        if (
+          typeof obj.id === "string" &&
+          typeof obj.name === "string" &&
+          typeof obj.createdAt === "number" &&
+          Array.isArray(obj.partition)
+        ) {
+          valid.push({
+            id: obj.id,
+            name: obj.name,
+            createdAt: obj.createdAt,
+            partition: sanitizePartition(obj.partition),
+          });
+        }
+      }
+      setScenarios(valid);
+    } catch (err) {
+      console.warn("Falha ao carregar cenários do localStorage:", err);
+    }
+  }, []);
+
+  function persistScenarios(next: SavedScenario[]) {
+    setScenarios(next);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(SCENARIOS_STORAGE_KEY, JSON.stringify(next));
+    } catch (err) {
+      console.warn("Falha ao salvar cenários no localStorage:", err);
+    }
+  }
+
   const groups = useMemo(
     () => partition.map((members) => buildGroupFromMembers(members, ufStats)),
     [partition, ufStats],
@@ -326,6 +466,64 @@ export function ProjectionDashboard({
     setSelectedIds(new Set());
     setEditingPoloId(null);
     setEditDraft(new Set());
+  }
+
+  function handleStartSaveScenario() {
+    const defaultName = `Cenário ${scenarios.length + 1}`;
+    setScenarioNameDraft(defaultName);
+    setSavingScenario(true);
+  }
+
+  function handleCancelSaveScenario() {
+    setSavingScenario(false);
+    setScenarioNameDraft("");
+  }
+
+  function handleConfirmSaveScenario() {
+    const name =
+      scenarioNameDraft.trim() || `Cenário ${scenarios.length + 1}`;
+    const newScenario: SavedScenario = {
+      id: `cen-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name,
+      createdAt: Date.now(),
+      partition: partition.map((g) => [...g]),
+    };
+    persistScenarios([...scenarios, newScenario]);
+    setSavingScenario(false);
+    setScenarioNameDraft("");
+  }
+
+  function handleLoadScenario(id: string) {
+    const target = scenarios.find((s) => s.id === id);
+    if (!target) return;
+    setPartition(sanitizePartition(target.partition));
+    setSelectedIds(new Set());
+    setEditingPoloId(null);
+    setEditDraft(new Set());
+  }
+
+  function handleDeleteScenario(id: string) {
+    persistScenarios(scenarios.filter((s) => s.id !== id));
+  }
+
+  function handleOverwriteScenario(id: string) {
+    const next = scenarios.map((s) =>
+      s.id === id
+        ? {
+            ...s,
+            partition: partition.map((g) => [...g]),
+            createdAt: Date.now(),
+          }
+        : s,
+    );
+    persistScenarios(next);
+  }
+
+  function isScenarioEqualToCurrent(s: SavedScenario): boolean {
+    const a = [...s.partition.map((g) => [...g].sort().join("|"))].sort();
+    const b = [...partition.map((g) => [...g].sort().join("|"))].sort();
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => v === b[i]);
   }
 
   function handleStartEdit(poloId: string) {
@@ -700,8 +898,58 @@ export function ProjectionDashboard({
             >
               Resetar tudo
             </button>
+            <button
+              type="button"
+              onClick={handleStartSaveScenario}
+              disabled={savingScenario}
+              className="inline-flex items-center gap-2 rounded-md border border-emerald-600 bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Salva a configuração atual de polos como cenário"
+            >
+              <span aria-hidden>💾</span>
+              Salvar cenário
+            </button>
           </div>
         </div>
+
+        {savingScenario && (
+          <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2">
+            <label className="text-xs font-medium text-emerald-900">
+              Nome do cenário:
+            </label>
+            <input
+              type="text"
+              value={scenarioNameDraft}
+              onChange={(e) => setScenarioNameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleConfirmSaveScenario();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  handleCancelSaveScenario();
+                }
+              }}
+              autoFocus
+              maxLength={60}
+              placeholder="Ex.: Polos pretendidos"
+              className="flex-1 min-w-[200px] rounded-md border border-emerald-300 bg-white px-2 py-1 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <button
+              type="button"
+              onClick={handleConfirmSaveScenario}
+              className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
+            >
+              Salvar
+            </button>
+            <button
+              type="button"
+              onClick={handleCancelSaveScenario}
+              className="rounded-md border border-emerald-400 px-3 py-1.5 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
 
         <div className="overflow-hidden rounded-lg border border-slate-200">
           <table className="w-full border-collapse text-sm">
@@ -822,6 +1070,146 @@ export function ProjectionDashboard({
           maior despesa do grupo × 1,25.
         </p>
       </section>
+
+      <section className="rounded-xl bg-white p-4 shadow-sm md:p-6">
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-lg font-semibold text-slate-900">
+            Cenários salvos
+          </h2>
+          <p className="text-xs text-slate-500">
+            Armazenados localmente no seu navegador (
+            <code className="rounded bg-slate-100 px-1">localStorage</code>).
+            Não são sincronizados entre dispositivos.
+          </p>
+        </div>
+
+        {scenarios.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+            Nenhum cenário salvo ainda. Configure os polos acima e clique em{" "}
+            <strong>Salvar cenário</strong> para armazenar para consulta.
+          </p>
+        ) : (
+          <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {scenarios
+              .slice()
+              .sort((a, b) => b.createdAt - a.createdAt)
+              .map((s) => {
+                const metrics = computeScenarioMetrics(
+                  s.partition,
+                  ufStats,
+                  s.name,
+                  s.id,
+                  "saved",
+                  s.createdAt,
+                );
+                const isCurrent = isScenarioEqualToCurrent(s);
+                return (
+                  <li
+                    key={s.id}
+                    className={[
+                      "flex flex-col gap-3 rounded-lg border p-4",
+                      isCurrent
+                        ? "border-violet-400 bg-violet-50/70 ring-1 ring-violet-200"
+                        : "border-slate-200 bg-slate-50/70",
+                    ].join(" ")}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {s.name}
+                          {isCurrent && (
+                            <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-700">
+                              em uso
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Salvo em{" "}
+                          {new Date(s.createdAt).toLocaleString("pt-BR")}
+                        </p>
+                      </div>
+                    </div>
+                    <dl className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <dt className="text-slate-500">Unidades</dt>
+                        <dd className="font-semibold tabular-nums text-slate-900">
+                          {metrics.unidades}{" "}
+                          <span className="font-normal text-slate-500">
+                            ({metrics.polos} polo
+                            {metrics.polos === 1 ? "" : "s"})
+                          </span>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Inscritos</dt>
+                        <dd className="font-semibold tabular-nums text-slate-900">
+                          {integer.format(metrics.inscritos)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Valor projetado</dt>
+                        <dd className="font-semibold tabular-nums text-slate-900">
+                          {currency.format(metrics.valor)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">
+                          Custo médio / cand.
+                        </dt>
+                        <dd className="font-semibold tabular-nums text-slate-900">
+                          {metrics.custoMedio != null
+                            ? currencyFine.format(metrics.custoMedio)
+                            : "—"}
+                        </dd>
+                      </div>
+                    </dl>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleLoadScenario(s.id)}
+                        disabled={isCurrent}
+                        className="rounded-md border border-violet-500 bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Carregar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOverwriteScenario(s.id)}
+                        disabled={isCurrent}
+                        className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Sobrescrever este cenário com a configuração atual"
+                      >
+                        Sobrescrever
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (
+                            typeof window !== "undefined" &&
+                            window.confirm(
+                              `Excluir o cenário "${s.name}"? Esta ação não pode ser desfeita.`,
+                            )
+                          ) {
+                            handleDeleteScenario(s.id);
+                          }
+                        }}
+                        className="ml-auto rounded-md border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50"
+                      >
+                        Excluir
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+          </ul>
+        )}
+      </section>
+
+      <ComparativeTable
+        ufStats={ufStats}
+        partition={partition}
+        scenarios={scenarios}
+      />
 
       {editingPolo && editPreview && (
         <div
@@ -984,6 +1372,262 @@ export function ProjectionDashboard({
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+type ComparativeTableProps = {
+  ufStats: Record<string, UfStats>;
+  partition: string[][];
+  scenarios: SavedScenario[];
+};
+
+function ComparativeTable({
+  ufStats,
+  partition,
+  scenarios,
+}: ComparativeTableProps) {
+  const rows = useMemo<ScenarioMetrics[]>(() => {
+    const baseline = computeScenarioMetrics(
+      ALL_UFS.map((u) => [u]),
+      ufStats,
+      "Base — sem polos",
+      "baseline",
+      "baseline",
+    );
+    const current = computeScenarioMetrics(
+      partition,
+      ufStats,
+      "Configuração atual",
+      "current",
+      "current",
+    );
+    const saved = scenarios
+      .slice()
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((s) =>
+        computeScenarioMetrics(
+          s.partition,
+          ufStats,
+          s.name,
+          s.id,
+          "saved",
+          s.createdAt,
+        ),
+      );
+    return [baseline, current, ...saved];
+  }, [ufStats, partition, scenarios]);
+
+  const currentValor = rows.find((r) => r.kind === "current")?.valor ?? 0;
+
+  const minCusto = useMemo(() => {
+    const v = rows
+      .map((r) => r.custoMedio)
+      .filter((c): c is number => c != null);
+    return v.length ? Math.min(...v) : null;
+  }, [rows]);
+  const maxCusto = useMemo(() => {
+    const v = rows
+      .map((r) => r.custoMedio)
+      .filter((c): c is number => c != null);
+    return v.length ? Math.max(...v) : null;
+  }, [rows]);
+
+  return (
+    <section className="rounded-xl bg-white p-4 shadow-sm md:p-6">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-semibold text-slate-900">
+          Comparativo entre cenários
+        </h2>
+        <p className="text-xs text-slate-500">
+          Inclui o cenário <strong>base</strong> (todas as UFs individuais), a
+          <strong> configuração atual</strong> e os cenários salvos.
+        </p>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full min-w-[60rem] border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 bg-slate-50 text-left">
+              <th className="px-3 py-2 font-medium text-slate-700">Cenário</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-700">
+                Unidades
+              </th>
+              <th className="px-3 py-2 text-right font-medium text-slate-700">
+                Polos
+              </th>
+              <th className="px-3 py-2 text-right font-medium text-slate-700">
+                UFs solo
+              </th>
+              <th className="px-3 py-2 text-right font-medium text-slate-700">
+                Inscritos
+              </th>
+              <th className="px-3 py-2 text-right font-medium text-slate-700">
+                Valor projetado
+              </th>
+              <th className="px-3 py-2 text-right font-medium text-slate-700">
+                Custo médio / cand.
+              </th>
+              <th className="px-3 py-2 text-right font-medium text-slate-700">
+                Menor R$/cand.
+              </th>
+              <th className="px-3 py-2 text-right font-medium text-slate-700">
+                Maior R$/cand.
+              </th>
+              <th className="px-3 py-2 text-right font-medium text-slate-700">
+                Δ vs. atual
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((m) => {
+              const isCurrent = m.kind === "current";
+              const delta = m.valor - currentValor;
+              const deltaPct =
+                currentValor > 0 ? (delta / currentValor) * 100 : 0;
+              const isMinCusto =
+                minCusto != null && m.custoMedio === minCusto && rows.length > 1;
+              const isMaxCusto =
+                maxCusto != null && m.custoMedio === maxCusto && rows.length > 1;
+              return (
+                <tr
+                  key={m.id}
+                  className={[
+                    "border-b border-slate-100 last:border-0",
+                    isCurrent ? "bg-violet-50/60" : "",
+                  ].join(" ")}
+                >
+                  <td className="px-3 py-2 text-slate-800">
+                    <div className="flex flex-col">
+                      <span className="font-medium">
+                        {m.name}
+                        {isCurrent && (
+                          <span className="ml-2 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-700">
+                            atual
+                          </span>
+                        )}
+                        {m.kind === "baseline" && (
+                          <span className="ml-2 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700">
+                            base
+                          </span>
+                        )}
+                      </span>
+                      {m.createdAt && (
+                        <span className="text-[10px] text-slate-500">
+                          Salvo em{" "}
+                          {new Date(m.createdAt).toLocaleString("pt-BR")}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-900">
+                    {m.unidades}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-900">
+                    {m.polos}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                    {m.individuais}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-900">
+                    {integer.format(m.inscritos)}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-900">
+                    {currency.format(m.valor)}
+                  </td>
+                  <td
+                    className={[
+                      "px-3 py-2 text-right tabular-nums",
+                      isMinCusto
+                        ? "font-semibold text-emerald-700"
+                        : isMaxCusto
+                          ? "font-semibold text-rose-700"
+                          : "text-slate-900",
+                    ].join(" ")}
+                    title={
+                      isMinCusto
+                        ? "Menor custo médio por candidato"
+                        : isMaxCusto
+                          ? "Maior custo médio por candidato"
+                          : undefined
+                    }
+                  >
+                    {m.custoMedio != null
+                      ? currencyFine.format(m.custoMedio)
+                      : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                    {m.custoMin ? (
+                      <span title={`UF/Polo: ${m.custoMin.label}`}>
+                        {currencyFine.format(m.custoMin.value)}{" "}
+                        <span className="text-[10px] text-slate-500">
+                          ({m.custoMin.label})
+                        </span>
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                    {m.custoMax ? (
+                      <span title={`UF/Polo: ${m.custoMax.label}`}>
+                        {currencyFine.format(m.custoMax.value)}{" "}
+                        <span className="text-[10px] text-slate-500">
+                          ({m.custoMax.label})
+                        </span>
+                      </span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td
+                    className={[
+                      "px-3 py-2 text-right tabular-nums",
+                      isCurrent
+                        ? "text-slate-500"
+                        : delta > 0
+                          ? "text-rose-700"
+                          : delta < 0
+                            ? "text-emerald-700"
+                            : "text-slate-700",
+                    ].join(" ")}
+                  >
+                    {isCurrent ? (
+                      "—"
+                    ) : (
+                      <>
+                        {delta >= 0 ? "+" : "−"}
+                        {currency.format(Math.abs(delta))}
+                        {currentValor > 0 && (
+                          <span className="ml-1 text-[10px] text-slate-500">
+                            ({delta >= 0 ? "+" : "−"}
+                            {Math.abs(deltaPct).toFixed(1).replace(".", ",")}%)
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-slate-500">
+        <li>
+          <span className="inline-block h-2 w-2 rounded-full bg-emerald-600 align-middle"></span>{" "}
+          Menor custo médio por candidato.
+        </li>
+        <li>
+          <span className="inline-block h-2 w-2 rounded-full bg-rose-600 align-middle"></span>{" "}
+          Maior custo médio por candidato.
+        </li>
+        <li>
+          <strong>Base</strong>: nenhuma UF agrupada (referência).{" "}
+          <strong>Atual</strong>: configuração em tela.
+        </li>
+      </ul>
     </section>
   );
 }
