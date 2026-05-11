@@ -312,6 +312,8 @@ export function ProjectionDashboard({
         valor: g.valor,
         inscritos: g.inscritos,
         custoPorCandidato: g.custoPorCandidato,
+        /** Valor numérico não nulo para o recharts renderizar a barra (0 quando sem inscritos). */
+        custoBar: g.custoPorCandidato ?? 0,
         isPolo: g.isPolo,
         members: g.members,
       })),
@@ -409,8 +411,9 @@ export function ProjectionDashboard({
               Distribuição por unidade
             </h2>
             <p className="text-xs text-slate-500">
-              Cada barra representa o <strong>valor projetado</strong> do grupo
-              (R$). A ordenação segue o <strong>custo por candidato</strong>.
+              Cada barra representa o <strong>custo por candidato</strong> do
+              grupo (R$ / inscrito). O <strong>valor total projetado</strong>{" "}
+              aparece ao final da barra, para consulta eventual.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -444,7 +447,7 @@ export function ProjectionDashboard({
               <BarChart
                 data={chartData}
                 layout="vertical"
-                margin={{ top: 8, right: 60, bottom: 8, left: 16 }}
+                margin={{ top: 8, right: 140, bottom: 8, left: 16 }}
               >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis
@@ -509,8 +512,8 @@ export function ProjectionDashboard({
                   }}
                 />
                 <Bar
-                  dataKey="valor"
-                  name="Valor projetado"
+                  dataKey="custoBar"
+                  name="Custo por candidato"
                   radius={[0, 6, 6, 0]}
                   minPointSize={2}
                 >
@@ -525,7 +528,9 @@ export function ProjectionDashboard({
                     position="right"
                     formatter={(value) => {
                       const n = typeof value === "number" ? value : Number(value);
-                      return Number.isFinite(n) ? currency.format(n) : "";
+                      return Number.isFinite(n)
+                        ? `Total: ${currency.format(n)}`
+                        : "";
                     }}
                     style={{ fontSize: 10, fill: "#0f172a" }}
                   />
