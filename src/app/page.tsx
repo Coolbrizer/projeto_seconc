@@ -1,6 +1,7 @@
 import { PaymentsDashboard } from "@/components/payments-dashboard";
 import { clearSession, requireSessionUser } from "@/lib/auth";
 import { getDashboardData } from "@/lib/payments";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 /** Sem isso, o Next gera a página no `next build` e os dados do Supabase ficam “congelados” (ex.: tudo zerado). */
@@ -29,18 +30,28 @@ export default async function Home() {
 
   return (
     <div className="min-h-screen bg-slate-100 px-4 py-6 md:px-8 md:py-8">
-      <header className="mx-auto mb-4 flex w-full max-w-7xl items-center justify-between rounded-lg bg-white px-4 py-3 shadow-sm">
+      <header className="mx-auto mb-4 flex w-full max-w-7xl flex-col gap-3 rounded-lg bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-slate-700">
           Conectado como <strong>{user.email}</strong>
         </p>
-        <form action={logoutAction}>
-          <button
-            type="submit"
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/projecao"
+            className="inline-flex items-center gap-2 rounded-md border border-violet-500 bg-violet-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-400"
+            title="Projeção de gastos por UF com agrupamento em polos"
           >
-            Sair
-          </button>
-        </form>
+            <span aria-hidden>📊</span>
+            Projeção de Gastos
+          </Link>
+          <form action={logoutAction}>
+            <button
+              type="submit"
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Sair
+            </button>
+          </form>
+        </div>
       </header>
       <PaymentsDashboard
         payments={payments}
