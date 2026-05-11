@@ -217,6 +217,11 @@ export function ProjectionDashboard({
   /** Conjunto de IDs (de grupos) selecionados para a próxima ação. */
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  /** ID do polo em edição (null = nenhum). Mantém isolado da seleção principal. */
+  const [editingPoloId, setEditingPoloId] = useState<string | null>(null);
+  /** UFs marcadas no rascunho de edição. */
+  const [editDraft, setEditDraft] = useState<Set<string>>(new Set());
+
   const [sortMode, setSortMode] = useState<SortMode>("custo-desc");
 
   const groups = useMemo(
@@ -236,6 +241,47 @@ export function ProjectionDashboard({
   );
 
   const polos = useMemo(() => groups.filter((g) => g.isPolo), [groups]);
+
+  /** Mapa UF → grupo atual (para exibir “está em Polo X” na edição). */
+  const ufToGroup = useMemo(() => {
+    const map = new Map<string, Group>();
+    for (const g of groups) {
+      for (const m of g.members) map.set(m, g);
+    }
+    return map;
+  }, [groups]);
+
+  const editingPolo = useMemo(
+    () => groups.find((g) => g.id === editingPoloId) ?? null,
+    [groups, editingPoloId],
+  );
+
+  /** Pré-visualização do polo enquanto o usuário marca/desmarca UFs no modal. */
+  const editPreview = useMemo(() => {
+    if (!editingPolo) return null;
+    const members = [...editDraft];
+    if (members.length === 0) {
+      return {
+        members,
+        inscritos: 0,
+        valor: 0,
+        custoPorCandidato: null as number | null,
+        label: "(polo será dissolvido)",
+        isPolo: false,
+        empty: true,
+      };
+    }
+    const built = buildGroupFromMembers(members, ufStats);
+    return {
+      members: built.members,
+      inscritos: built.inscritos,
+      valor: built.valor,
+      custoPorCandidato: built.custoPorCandidato,
+      label: built.label,
+      isPolo: built.isPolo,
+      empty: false,
+    };
+  }, [editingPolo, editDraft, ufStats]);
 
   function toggleSelection(id: string) {
     setSelectedIds((current) => {
@@ -278,6 +324,69 @@ export function ProjectionDashboard({
   function handleReset() {
     setPartition(ALL_UFS.map((uf) => [uf]));
     setSelectedIds(new Set());
+    setEditingPoloId(null);
+    setEditDraft(new Set());
+  }
+
+  function handleStartEdit(poloId: string) {
+    const polo = groups.find((g) => g.id === poloId);
+    if (!polo || !polo.isPolo) return;
+    setEditingPoloId(poloId);
+    setEditDraft(new Set(polo.members));
+    // Importante: não tocamos em selectedIds nem em partition → a seleção principal é preservada.
+  }
+
+  function handleCancelEdit() {
+    setEditingPoloId(null);
+    setEditDraft(new Set());
+  }
+
+  function handleToggleDraftUf(uf: string) {
+    setEditDraft((current) => {
+      const next = new Set(current);
+      if (next.has(uf)) {
+        next.delete(uf);
+      } else {
+        next.add(uf);
+      }
+      return next;
+    });
+  }
+
+  function handleSaveEdit() {
+    if (!editingPolo) return;
+    const oldMembers = editingPolo.members;
+    const draft = editDraft;
+
+    // 1) Reconstrói a partição removendo o polo em edição e descontando as UFs
+    //    do draft de qualquer outro grupo onde estejam (UFs que “migram” para este polo).
+    const newPartition: string[][] = [];
+    for (const group of partition) {
+      const groupId = partitionGroupId(group);
+      if (groupId === editingPolo.id) continue;
+      const filtered = group.filter((m) => !draft.has(m));
+      if (filtered.length > 0) newPartition.push(filtered);
+    }
+
+    // 2) UFs que estavam no polo original e foram desmarcadas viram singletons.
+    for (const uf of oldMembers) {
+      if (!draft.has(uf)) newPartition.push([uf]);
+    }
+
+    // 3) O novo grupo editado (pode virar singleton se sobrou 1 UF; nada se 0).
+    if (draft.size > 0) newPartition.push([...draft]);
+
+    setPartition(newPartition);
+    // Atualiza seleção: se o polo antigo estava marcado, marca o novo (mesmo conjunto = mesmo id ou novo id).
+    setSelectedIds((current) => {
+      if (!current.has(editingPolo.id)) return current;
+      const next = new Set(current);
+      next.delete(editingPolo.id);
+      if (draft.size > 0) next.add(partitionGroupId([...draft]));
+      return next;
+    });
+    setEditingPoloId(null);
+    setEditDraft(new Set());
   }
 
   const totalsAtuais = useMemo(() => {
@@ -609,7 +718,7 @@ export function ProjectionDashboard({
                 <th className="px-3 py-2 text-right font-medium text-slate-700">
                   R$ / inscrito
                 </th>
-                <th className="w-24 px-3 py-2 text-right font-medium text-slate-700"></th>
+                <th className="w-40 px-3 py-2 text-right font-medium text-slate-700"></th>
               </tr>
             </thead>
             <tbody>
@@ -658,13 +767,24 @@ export function ProjectionDashboard({
                   </td>
                   <td className="px-3 py-2 text-right">
                     {g.isPolo && (
-                      <button
-                        type="button"
-                        onClick={() => handleUndoPolo(g.id)}
-                        className="rounded-md border border-violet-300 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100"
-                      >
-                        Desfazer
-                      </button>
+                      <div className="flex flex-wrap items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEdit(g.id)}
+                          className="rounded-md border border-violet-500 bg-violet-600 px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700"
+                          title="Adicionar ou remover UFs deste polo"
+                        >
+                          Editar polo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleUndoPolo(g.id)}
+                          className="rounded-md border border-violet-300 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100"
+                          title="Voltar a separar todas as UFs deste polo"
+                        >
+                          Desfazer
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -702,6 +822,168 @@ export function ProjectionDashboard({
           maior despesa do grupo × 1,25.
         </p>
       </section>
+
+      {editingPolo && editPreview && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Editar ${editingPolo.label}`}
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/70 p-4 sm:items-center"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) handleCancelEdit();
+          }}
+        >
+          <div className="flex w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">
+                  Editar <span className="text-violet-700">{editingPolo.label}</span>
+                </h3>
+                <p className="mt-1 text-xs text-slate-600">
+                  Marque as UFs que devem compor este polo. UFs que estiverem em{" "}
+                  <strong>outros polos</strong> sairão do polo de origem ao serem
+                  selecionadas aqui. Sua seleção de checkboxes na tabela{" "}
+                  <strong>não é perdida</strong>.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className="rounded-md p-1 text-slate-500 hover:bg-slate-200"
+                aria-label="Fechar edição"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="max-h-[55vh] overflow-y-auto px-5 py-4">
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7">
+                {ALL_UFS.map((uf) => {
+                  const inDraft = editDraft.has(uf);
+                  const currentGroup = ufToGroup.get(uf);
+                  const isInThisPolo = editingPolo.members.includes(uf);
+                  const isInOtherPolo =
+                    !!currentGroup &&
+                    currentGroup.isPolo &&
+                    currentGroup.id !== editingPolo.id;
+                  return (
+                    <button
+                      key={uf}
+                      type="button"
+                      onClick={() => handleToggleDraftUf(uf)}
+                      className={[
+                        "flex flex-col items-center justify-center rounded-lg border px-2 py-2 text-xs transition",
+                        inDraft
+                          ? "border-violet-600 bg-violet-600 text-white shadow-sm"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-violet-400 hover:bg-violet-50",
+                      ].join(" ")}
+                      title={
+                        isInOtherPolo
+                          ? `Atualmente em ${currentGroup!.label}`
+                          : isInThisPolo
+                            ? "Já está neste polo"
+                            : "UF disponível"
+                      }
+                    >
+                      <span className="text-sm font-semibold">{uf}</span>
+                      <span
+                        className={[
+                          "mt-0.5 text-[10px]",
+                          inDraft ? "text-violet-100" : "text-slate-500",
+                        ].join(" ")}
+                      >
+                        {ufStats[uf].inscritos > 0
+                          ? `${integer.format(ufStats[uf].inscritos)} insc.`
+                          : "sem insc."}
+                      </span>
+                      {isInOtherPolo && !inDraft && (
+                        <span className="mt-0.5 truncate text-[10px] text-amber-600">
+                          em {currentGroup!.label}
+                        </span>
+                      )}
+                      {inDraft && isInOtherPolo && (
+                        <span className="mt-0.5 truncate text-[10px] text-amber-100">
+                          ← {currentGroup!.label}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="border-t border-slate-200 bg-slate-50 px-5 py-4">
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Prévia do polo após salvar
+              </p>
+              {editPreview.empty ? (
+                <p className="mt-1 text-sm text-amber-700">
+                  Nenhuma UF marcada — ao salvar, este polo será dissolvido e
+                  suas UFs voltam a ser individuais.
+                </p>
+              ) : (
+                <div className="mt-1 grid grid-cols-1 gap-1 text-sm sm:grid-cols-3">
+                  <div>
+                    <p className="text-slate-500">
+                      {editPreview.isPolo ? "Polo" : "Unidade"}
+                    </p>
+                    <p className="font-semibold text-slate-900">
+                      {editPreview.label}
+                    </p>
+                    {editPreview.isPolo && (
+                      <p className="text-[11px] text-slate-500">
+                        ({editPreview.members.join(" + ")})
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Inscritos</p>
+                    <p className="font-semibold tabular-nums text-slate-900">
+                      {integer.format(editPreview.inscritos)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">
+                      Valor projetado
+                      {editPreview.isPolo && (
+                        <span className="ml-1 text-[10px] text-violet-700">
+                          (×1,25)
+                        </span>
+                      )}
+                    </p>
+                    <p className="font-semibold tabular-nums text-slate-900">
+                      {currencyFine.format(editPreview.valor)}
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      Custo / candidato:{" "}
+                      {editPreview.custoPorCandidato != null
+                        ? currencyFine.format(editPreview.custoPorCandidato)
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 px-5 py-4">
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEdit}
+                className="rounded-md bg-violet-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700"
+              >
+                Salvar alterações
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
