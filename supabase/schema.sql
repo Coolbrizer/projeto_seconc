@@ -24,6 +24,10 @@ create policy "Leitura publica pagamentos"
   to anon, authenticated
   using (true);
 
+-- A partir de 30/05/2026 (novos projetos) e 30/10/2026 (projetos existentes),
+-- o Supabase não concede acesso à Data API por padrão. GRANT explícito é obrigatório.
+grant select on public.monthly_payments to anon, authenticated;
+
 -- Aplicação de prova (fiscalização): tipo + valor + ano.
 create table if not exists public.pgto_fiscalizacao (
   tipo text not null,
@@ -43,6 +47,8 @@ create policy "Leitura publica pgto_fiscalizacao"
   to anon, authenticated
   using (true);
 
+grant select on public.pgto_fiscalizacao to anon, authenticated;
+
 -- Comissão especial de avaliação (valores por mês).
 create table if not exists public.pgto_comissao_medica (
   mes text not null,
@@ -61,6 +67,8 @@ create policy "Leitura publica pgto_comissao_medica"
   for select
   to anon, authenticated
   using (true);
+
+grant select on public.pgto_comissao_medica to anon, authenticated;
 
 -- Assessoria especial: uma linha por ano; colunas no formato mai./25, jan./26, etc.
 create table if not exists public.pgto_assessoria_2025 (
@@ -90,6 +98,8 @@ create policy "Leitura publica pgto_assessoria_2025"
   to anon, authenticated
   using (true);
 
+grant select on public.pgto_assessoria_2025 to anon, authenticated;
+
 create table if not exists public.pgto_assessoria_2026 (
   id uuid primary key default gen_random_uuid(),
   uf text not null default 'BR' check (char_length(uf) = 2),
@@ -116,6 +126,8 @@ create policy "Leitura publica pgto_assessoria_2026"
   for select
   to anon, authenticated
   using (true);
+
+grant select on public.pgto_assessoria_2026 to anon, authenticated;
 
 -- Dados iniciais (uma linha BR por tabela). Reexecutar: delete antes ou use on conflict.
 insert into public.pgto_assessoria_2025 (uf, "mai./25", "jun./25", "jul./25", "ago./25", "set./25", "out./25", "nov./25", "dez./25")
@@ -160,6 +172,8 @@ create policy "Leitura publica arrecadacao"
   to anon, authenticated
   using (true);
 
+grant select on public.arrecadacao to anon, authenticated;
+
 insert into public.arrecadacao (nome, total_inscritos, isencoes_deferidas, valor_inscricao)
 values ('31º CPR', 10372, 2565, 250.00)
 on conflict (nome) do update set
@@ -167,3 +181,84 @@ on conflict (nome) do update set
   isencoes_deferidas = excluded.isencoes_deferidas,
   valor_inscricao = excluded.valor_inscricao,
   updated_at = now();
+
+-- ============================================================================
+-- Usuários da aplicação (login dos gestores). Senhas armazenadas como hash
+-- bcrypt via pgcrypto. Acesso bloqueado para anon/authenticated: apenas o
+-- service_role (servidor Next.js) consulta esta tabela.
+-- ============================================================================
+create table if not exists public.app_users (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  password_hash text not null,
+  role text not null default 'gestor' check (role in ('gestor', 'admin')),
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_app_users_email on public.app_users (lower(email));
+
+alter table public.app_users enable row level security;
+
+drop policy if exists "Nega leitura publica app_users" on public.app_users;
+create policy "Nega leitura publica app_users"
+  on public.app_users
+  for select
+  to anon, authenticated
+  using (false);
+
+revoke all on public.app_users from anon, authenticated;
+
+create or replace function public.app_users_set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_app_users_set_updated_at on public.app_users;
+create trigger trg_app_users_set_updated_at
+  before update on public.app_users
+  for each row execute function public.app_users_set_updated_at();
+
+-- Seed inicial de gestores. As senhas em texto puro NÃO são armazenadas:
+-- crypt(...) com gen_salt('bf', 10) gera bcrypt. Para validar no app, use
+-- `password_hash = crypt(senha_digitada, password_hash)`.
+insert into public.app_users (email, password_hash, role)
+values
+  ('alexandredamasceno@mpf.mp.br', crypt('Rpvl2027@', gen_salt('bf', 10)), 'gestor'),
+  ('marcossilvestre@mpf.mp.br', crypt('31cprPrincipe', gen_salt('bf', 10)), 'gestor')
+on conflict (email) do nothing;
+
+-- ============================================================================
+-- GRANTs para tabelas mantidas fora deste arquivo (importadas de planilhas).
+-- Necessário a partir de 30/10/2026 para o app ler via Data API (supabase-js).
+-- O bloco DO ignora silenciosamente as tabelas que ainda não existem.
+-- ============================================================================
+do $$
+declare
+  t text;
+  tables text[] := array[
+    'pgto_uf_2025',
+    'pgto_uf_2026',
+    'pgto_coord_2025',
+    'pgto_coord_2026',
+    'pgto_banca',
+    'pgto_execucao',
+    'qtd_inscrit_uf'
+  ];
+begin
+  foreach t in array tables loop
+    if to_regclass('public.' || quote_ident(t)) is not null then
+      execute format(
+        'grant select on public.%I to anon, authenticated',
+        t
+      );
+    end if;
+  end loop;
+end
+$$;
