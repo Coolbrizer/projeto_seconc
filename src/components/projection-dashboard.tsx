@@ -15,6 +15,8 @@ import {
 
 import type { DashboardDataNotice, PaymentRecord } from "@/types/payment";
 
+import { BrazilMap } from "./brazil-map";
+
 type ProjectionDashboardProps = {
   payments: PaymentRecord[];
   enrolledByUf: Record<string, number>;
@@ -381,6 +383,23 @@ export function ProjectionDashboard({
   );
 
   const polos = useMemo(() => groups.filter((g) => g.isPolo), [groups]);
+
+  /**
+   * Nome do cenário salvo que bate com a partição atual (se houver).
+   * Usado como legenda do mapa quando o usuário carrega um cenário.
+   */
+  const activeScenarioName = useMemo(() => {
+    const partitionKey = [...partition.map((g) => [...g].sort().join("|"))]
+      .sort()
+      .join("||");
+    const match = scenarios.find((s) => {
+      const k = [...s.partition.map((g) => [...g].sort().join("|"))]
+        .sort()
+        .join("||");
+      return k === partitionKey;
+    });
+    return match?.name ?? null;
+  }, [partition, scenarios]);
 
   /** Mapa UF → grupo atual (para exibir “está em Polo X” na edição). */
   const ufToGroup = useMemo(() => {
@@ -852,6 +871,21 @@ export function ProjectionDashboard({
           )}
         </div>
       </section>
+
+      <BrazilMap
+        polos={polos.map((g) => ({
+          id: g.id,
+          label: g.label,
+          members: g.members,
+        }))}
+        caption={
+          activeScenarioName
+            ? `Visualizando: ${activeScenarioName}`
+            : polos.length > 0
+              ? `${polos.length} polo${polos.length > 1 ? "s" : ""} ativo${polos.length > 1 ? "s" : ""}`
+              : undefined
+        }
+      />
 
       <section className="rounded-xl bg-white p-4 shadow-sm md:p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
