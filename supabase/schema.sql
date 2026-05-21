@@ -194,9 +194,29 @@ create table if not exists public.usuarios (
   nome text not null,
   email text not null unique,
   senha_hash text not null,
+  role text not null default 'gestor' check (role in ('gestor', 'admin')),
+  senha_provisoria boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Compatibilidade com instalações que rodaram a versão anterior da tabela
+-- (sem `role` e `senha_provisoria`). `add column if not exists` é seguro: só
+-- adiciona quando a coluna não está lá.
+alter table public.usuarios add column if not exists role text not null default 'gestor';
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'usuarios_role_check'
+      and conrelid = 'public.usuarios'::regclass
+  ) then
+    alter table public.usuarios
+      add constraint usuarios_role_check check (role in ('gestor', 'admin'));
+  end if;
+end
+$$;
+alter table public.usuarios add column if not exists senha_provisoria boolean not null default false;
 
 create index if not exists idx_usuarios_email on public.usuarios (lower(email));
 
@@ -230,17 +250,23 @@ create trigger trg_usuarios_set_updated_at
 -- `crypt(..., gen_salt('bf', 10))` produz um hash bcrypt na hora do insert.
 -- O `on conflict (email) do nothing` mantém o arquivo idempotente: reexecutar
 -- não duplica e não sobrescreve senhas já cadastradas (use UPDATE manual para isso).
-insert into public.usuarios (nome, email, senha_hash)
+-- Ambos começam como `admin` (podem gerenciar o painel de Acessos) e com
+-- `senha_provisoria = false` porque já têm uma senha pessoal definida.
+insert into public.usuarios (nome, email, senha_hash, role, senha_provisoria)
 values
   (
     'Alexandre Cezar Damasceno',
     'alexandredamasceno@mpf.mp.br',
-    crypt('Rpvl2027@', gen_salt('bf', 10))
+    crypt('Rpvl2027@', gen_salt('bf', 10)),
+    'admin',
+    false
   ),
   (
     'Marcos Silvestre',
     'marcossilvestre@mpf.mp.br',
-    crypt('31cprPrincipe', gen_salt('bf', 10))
+    crypt('31cprPrincipe', gen_salt('bf', 10)),
+    'admin',
+    false
   )
 on conflict (email) do nothing;
 
@@ -250,18 +276,29 @@ on conflict (email) do nothing;
 -- ----------------------------------------------------------------------------
 
 -- Valida login: retorna a linha do usuário se a senha bate; vazio caso contrário.
-create or replace function public.usuarios_validar_login(
+-- Devolve também `role` e `senha_provisoria` para o app decidir o que mostrar
+-- (gating do painel de Acessos, redirecionar para troca de senha, etc.).
+-- A função antiga retornava (id, nome, email). DROP + CREATE evita o erro
+-- "cannot change return type of existing function" ao reaplicar o schema.
+drop function if exists public.usuarios_validar_login(text, text);
+create function public.usuarios_validar_login(
   p_email text,
   p_senha text
 )
-returns table (id uuid, nome text, email text)
+returns table (
+  id uuid,
+  nome text,
+  email text,
+  role text,
+  senha_provisoria boolean
+)
 language plpgsql
 security definer
 set search_path = public
 as $$
 begin
   return query
-  select u.id, u.nome, u.email
+  select u.id, u.nome, u.email, u.role, u.senha_provisoria
   from public.usuarios u
   where lower(u.email) = lower(p_email)
     and u.senha_hash = crypt(p_senha, u.senha_hash);
@@ -269,31 +306,38 @@ end;
 $$;
 
 -- Cria um novo usuário com a senha fornecida (já com bcrypt). Lança exceção
--- se o e-mail já existir (constraint unique).
-create or replace function public.usuarios_criar(
+-- se o e-mail já existir (constraint unique). Sempre marca `senha_provisoria`
+-- como true — o usuário criado precisa trocar a senha no primeiro login.
+drop function if exists public.usuarios_criar(text, text, text);
+drop function if exists public.usuarios_criar(text, text, text, text);
+create function public.usuarios_criar(
   p_nome text,
   p_email text,
-  p_senha text
+  p_senha text,
+  p_role text default 'gestor'
 )
-returns table (id uuid, nome text, email text)
+returns table (id uuid, nome text, email text, role text)
 language plpgsql
 security definer
 set search_path = public
 as $$
 begin
   return query
-  insert into public.usuarios (nome, email, senha_hash)
+  insert into public.usuarios (nome, email, senha_hash, role, senha_provisoria)
   values (
     trim(p_nome),
     lower(trim(p_email)),
-    crypt(p_senha, gen_salt('bf', 10))
+    crypt(p_senha, gen_salt('bf', 10)),
+    coalesce(p_role, 'gestor'),
+    true
   )
-  returning usuarios.id, usuarios.nome, usuarios.email;
+  returning usuarios.id, usuarios.nome, usuarios.email, usuarios.role;
 end;
 $$;
 
--- Redefine a senha do usuário identificado por e-mail. Retorna `true` se
--- encontrou o usuário, `false` caso contrário.
+-- Redefine a senha do usuário identificado por e-mail (operação de admin).
+-- Marca `senha_provisoria = true` para forçar o usuário a trocar a senha
+-- no próximo login. Retorna `true` se encontrou o usuário.
 create or replace function public.usuarios_redefinir_senha(
   p_email text,
   p_nova_senha text
@@ -307,7 +351,34 @@ declare
   v_count int;
 begin
   update public.usuarios
-  set senha_hash = crypt(p_nova_senha, gen_salt('bf', 10))
+  set senha_hash = crypt(p_nova_senha, gen_salt('bf', 10)),
+      senha_provisoria = true
+  where lower(email) = lower(p_email);
+
+  get diagnostics v_count = row_count;
+  return v_count > 0;
+end;
+$$;
+
+-- Troca a senha do próprio usuário (usado na tela /trocar-senha). Não verifica
+-- a senha antiga porque a sessão (cookie HMAC com TTL de 12h) já prova que o
+-- usuário está autenticado — o app é interno e a área é gateada por sessão.
+-- Marca `senha_provisoria = false` para sair do estado "deve trocar".
+create or replace function public.usuarios_trocar_senha(
+  p_email text,
+  p_nova_senha text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_count int;
+begin
+  update public.usuarios
+  set senha_hash = crypt(p_nova_senha, gen_salt('bf', 10)),
+      senha_provisoria = false
   where lower(email) = lower(p_email);
 
   get diagnostics v_count = row_count;
@@ -316,9 +387,10 @@ end;
 $$;
 
 -- Acesso às RPCs: apenas service_role (ou postgres) pode chamar.
-revoke all on function public.usuarios_validar_login(text, text) from public, anon, authenticated;
-revoke all on function public.usuarios_criar(text, text, text)     from public, anon, authenticated;
-revoke all on function public.usuarios_redefinir_senha(text, text) from public, anon, authenticated;
+revoke all on function public.usuarios_validar_login(text, text)            from public, anon, authenticated;
+revoke all on function public.usuarios_criar(text, text, text, text)        from public, anon, authenticated;
+revoke all on function public.usuarios_redefinir_senha(text, text)          from public, anon, authenticated;
+revoke all on function public.usuarios_trocar_senha(text, text)             from public, anon, authenticated;
 
 -- ============================================================================
 -- GRANTs para tabelas mantidas fora deste arquivo (importadas de planilhas).

@@ -7,7 +7,8 @@ import {
   criarUsuarioAction,
   redefinirSenhaAction,
 } from "@/app/acessos/actions";
-import type { Usuario } from "@/lib/usuarios";
+import type { AuthUser } from "@/lib/auth";
+import type { Usuario, UsuarioRole } from "@/lib/usuarios";
 
 /** Senha provisória exibida no UI (deve bater com `SENHA_PROVISORIA` do servidor). */
 const SENHA_PROVISORIA_LABEL = "123456";
@@ -32,7 +33,15 @@ function formatDate(iso: string) {
   return dateFormatter.format(date);
 }
 
-export function AccessModal() {
+function roleLabel(role: UsuarioRole) {
+  return role === "admin" ? "Admin" : "Gestor";
+}
+
+type AccessModalProps = {
+  currentUser: AuthUser;
+};
+
+export function AccessModal({ currentUser }: AccessModalProps) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -40,6 +49,7 @@ export function AccessModal() {
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
+  const [role, setRole] = useState<UsuarioRole>("gestor");
   const [formPending, startFormTransition] = useTransition();
   const [resetPendingEmail, setResetPendingEmail] = useState<string | null>(
     null,
@@ -77,9 +87,17 @@ export function AccessModal() {
       setFeedback(null);
       setNome("");
       setEmail("");
+      setRole("gestor");
       setResetPendingEmail(null);
     }
   }, [open, fetchUsuarios]);
+
+  // Painel de Acessos é exclusivo para admins. Para qualquer outro papel o
+  // botão simplesmente não aparece — defesa em profundidade junto com o
+  // `requireAdminUser` nas server actions.
+  if (currentUser.role !== "admin") {
+    return null;
+  }
 
   function handleAdicionar(formData: FormData) {
     setFeedback(null);
@@ -92,6 +110,7 @@ export function AccessModal() {
         });
         setNome("");
         setEmail("");
+        setRole("gestor");
         await fetchUsuarios();
       } else {
         const msg =
@@ -108,7 +127,8 @@ export function AccessModal() {
   async function handleResetSenha(target: Usuario) {
     if (typeof window !== "undefined") {
       const ok = window.confirm(
-        `Resetar a senha de "${target.nome}" para a senha provisória ${SENHA_PROVISORIA_LABEL}?`,
+        `Resetar a senha de "${target.nome}" para a senha provisória ${SENHA_PROVISORIA_LABEL}?` +
+          ` Ele(a) será forçado(a) a trocar no próximo login.`,
       );
       if (!ok) return;
     }
@@ -121,6 +141,7 @@ export function AccessModal() {
           tone: "success",
           message: `Senha de ${target.email} redefinida para ${SENHA_PROVISORIA_LABEL}.`,
         });
+        await fetchUsuarios();
       } else {
         const msg =
           result.error === "nao_encontrado"
@@ -157,7 +178,7 @@ export function AccessModal() {
             if (e.target === e.currentTarget) setOpen(false);
           }}
         >
-          <div className="flex w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+          <div className="flex w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
             <div className="flex items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
               <div>
                 <h3 className="text-base font-semibold text-slate-900">
@@ -169,7 +190,8 @@ export function AccessModal() {
                   <code className="rounded bg-slate-200 px-1 font-mono text-[11px] text-slate-800">
                     {SENHA_PROVISORIA_LABEL}
                   </code>
-                  .
+                  ; ao ser criado ou ter a senha resetada, o usuário é forçado
+                  a escolher uma nova no primeiro login.
                 </p>
               </div>
               <button
@@ -205,9 +227,9 @@ export function AccessModal() {
                 </p>
                 <form
                   action={handleAdicionar}
-                  className="flex flex-col gap-2 sm:flex-row sm:items-end"
+                  className="flex flex-col gap-2 md:flex-row md:items-end"
                 >
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <label
                       htmlFor="novo-usuario-nome"
                       className="text-xs font-medium text-slate-700"
@@ -226,7 +248,7 @@ export function AccessModal() {
                       className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
                     />
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <label
                       htmlFor="novo-usuario-email"
                       className="text-xs font-medium text-slate-700"
@@ -245,6 +267,26 @@ export function AccessModal() {
                       className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
                     />
                   </div>
+                  <div className="w-full md:w-36">
+                    <label
+                      htmlFor="novo-usuario-role"
+                      className="text-xs font-medium text-slate-700"
+                    >
+                      Papel
+                    </label>
+                    <select
+                      id="novo-usuario-role"
+                      name="role"
+                      value={role}
+                      onChange={(e) =>
+                        setRole(e.target.value === "admin" ? "admin" : "gestor")
+                      }
+                      className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                    >
+                      <option value="gestor">Gestor</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </div>
                   <button
                     type="submit"
                     disabled={formPending}
@@ -254,9 +296,11 @@ export function AccessModal() {
                   </button>
                 </form>
                 <p className="mt-2 text-[11px] text-slate-500">
-                  O usuário criado receberá a senha provisória{" "}
-                  <strong>{SENHA_PROVISORIA_LABEL}</strong>. Avise para que
-                  troque no primeiro acesso.
+                  <strong>Gestor</strong> usa o painel; <strong>Admin</strong>{" "}
+                  também gerencia este modal de Acessos. O usuário criado
+                  receberá a senha provisória{" "}
+                  <strong>{SENHA_PROVISORIA_LABEL}</strong> e será obrigado a
+                  trocar no primeiro acesso.
                 </p>
               </section>
 
@@ -289,6 +333,9 @@ export function AccessModal() {
                             E-mail
                           </th>
                           <th className="px-3 py-2 font-medium text-slate-700">
+                            Papel
+                          </th>
+                          <th className="px-3 py-2 font-medium text-slate-700">
                             Cadastrado em
                           </th>
                           <th className="w-36 px-3 py-2 text-right font-medium text-slate-700"></th>
@@ -302,9 +349,35 @@ export function AccessModal() {
                           >
                             <td className="px-3 py-2 text-slate-800">
                               {u.nome}
+                              {u.email.toLowerCase() ===
+                                currentUser.email.toLowerCase() && (
+                                <span className="ml-2 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-700">
+                                  você
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-2 text-slate-700">
                               {u.email}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={[
+                                  "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+                                  u.role === "admin"
+                                    ? "bg-violet-100 text-violet-800"
+                                    : "bg-slate-200 text-slate-700",
+                                ].join(" ")}
+                              >
+                                {roleLabel(u.role)}
+                              </span>
+                              {u.senhaProvisoria && (
+                                <span
+                                  className="ml-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800"
+                                  title="O usuário ainda não trocou a senha provisória."
+                                >
+                                  senha provisória
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-2 text-xs text-slate-500">
                               {formatDate(u.createdAt)}

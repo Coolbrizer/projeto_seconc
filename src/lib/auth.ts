@@ -4,11 +4,14 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { validarLogin } from "@/lib/usuarios";
+import { buscarUsuarioPorEmail, validarLogin } from "@/lib/usuarios";
+import type { UsuarioRole } from "@/lib/usuarios";
 
 export type AuthUser = {
   email: string;
-  role: "gestor";
+  nome: string;
+  role: UsuarioRole;
+  mustChangePassword: boolean;
 };
 
 type SessionPayload = {
@@ -17,23 +20,20 @@ type SessionPayload = {
 };
 
 /**
- * Lista de fallback usada apenas quando a tabela `public.usuarios` não está
- * disponível (banco sem o schema aplicado, `SUPABASE_SERVICE_ROLE_KEY` ausente,
- * etc.). Quando a migração estiver completa e os dois usuários abaixo já
- * existirem na tabela, este array pode ser esvaziado com segurança.
+ * Fallback de credenciais usado **apenas** quando a tabela `public.usuarios`
+ * está indisponível (banco sem schema aplicado, `SUPABASE_SERVICE_ROLE_KEY`
+ * ausente, etc.). Vazio por padrão — a fonte da verdade agora é a tabela.
+ *
+ * Para manter um "freio de emergência" em desenvolvimento, basta acrescentar
+ * objetos `{ email, password, nome, role: "admin" }` aqui. Em produção,
+ * mantenha vazio.
  */
-const AUTH_USERS_FALLBACK: Array<AuthUser & { password: string }> = [
-  {
-    email: "alexandredamasceno@mpf.mp.br",
-    password: "Rpvl2027@",
-    role: "gestor",
-  },
-  {
-    email: "marcossilvestre@mpf.mp.br",
-    password: "31cprPrincipe",
-    role: "gestor",
-  },
-];
+const AUTH_USERS_FALLBACK: Array<{
+  email: string;
+  password: string;
+  nome: string;
+  role: UsuarioRole;
+}> = [];
 
 export const SESSION_COOKIE_NAME = "seconc_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 horas
@@ -41,7 +41,10 @@ const SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 horas
 function resolveSessionSecret(): string {
   const envSecret = process.env.SESSION_SECRET?.trim();
   if (envSecret && envSecret.length >= 16) return envSecret;
-  if (process.env.NODE_ENV === "production" && process.env.NEXT_PHASE !== "phase-production-build") {
+  if (
+    process.env.NODE_ENV === "production" &&
+    process.env.NEXT_PHASE !== "phase-production-build"
+  ) {
     console.warn(
       "[auth] SESSION_SECRET ausente ou com menos de 16 chars em produção. Defina uma chave forte em process.env.SESSION_SECRET para assinar sessões.",
     );
@@ -101,12 +104,9 @@ function findFallbackUserByEmail(email: string) {
 
 /**
  * Valida credenciais. Tenta primeiro a tabela `public.usuarios` (via RPC com
- * bcrypt no Postgres). Se a tabela ainda não está disponível ou a consulta
- * falha por motivo de infraestrutura, recorre à lista hardcoded de fallback.
- *
- * - DB válido → sucesso.
- * - DB diz "usuário não bate" → ainda tenta o fallback (suporte à transição).
- * - DB indisponível ou erro → fallback.
+ * bcrypt no Postgres). Se a tabela está indisponível, recorre ao fallback
+ * (normalmente vazio — só usado em dev quando o banco ainda não foi
+ * configurado).
  */
 export async function validateCredentials(
   email: string,
@@ -116,10 +116,20 @@ export async function validateCredentials(
 
   try {
     const dbResult = await validarLogin(trimmedEmail, password);
-    if (dbResult !== "indisponivel" && dbResult !== null) {
-      return { email: dbResult.email, role: "gestor" };
+    if (dbResult === "indisponivel") {
+      // banco indisponível → cai no fallback
+    } else if (dbResult !== null) {
+      return {
+        email: dbResult.email,
+        nome: dbResult.nome,
+        role: dbResult.role,
+        mustChangePassword: dbResult.senhaProvisoria,
+      };
+    } else {
+      // dbResult === null → credenciais não conferem na tabela.
+      // Ainda tentamos o fallback caso o admin tenha listado um "freio de
+      // emergência" lá durante a transição.
     }
-    // dbResult === null (credenciais não batem) ou "indisponivel" → tenta fallback.
   } catch (err) {
     console.warn("[auth] Falha ao validar via tabela usuarios; usando fallback.", err);
   }
@@ -127,7 +137,12 @@ export async function validateCredentials(
   const fallback = findFallbackUserByEmail(trimmedEmail);
   if (!fallback) return null;
   if (fallback.password !== password) return null;
-  return { email: fallback.email, role: fallback.role };
+  return {
+    email: fallback.email,
+    nome: fallback.nome,
+    role: fallback.role,
+    mustChangePassword: false,
+  };
 }
 
 export async function createSession(email: string) {
@@ -148,21 +163,64 @@ export async function clearSession() {
   cookieStore.delete(SESSION_COOKIE_NAME);
 }
 
+/**
+ * Decodifica o cookie de sessão e busca o usuário atualizado no banco.
+ * Faz uma consulta por render — aceitável para um app interno e mantém os
+ * campos `nome`, `role` e `mustChangePassword` sempre frescos (permissões/
+ * estado de senha provisória podem mudar via painel de Acessos).
+ *
+ * Se o banco estiver indisponível, ainda tenta o fallback hardcoded (vazio
+ * por padrão) para evitar lock-out durante a configuração inicial.
+ */
 export async function getSessionUser(): Promise<AuthUser | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (!token) return null;
   const payload = decodeSessionToken(token);
   if (!payload) return null;
-  // Confiamos no token (assinado por HMAC com TTL de 12h). Não revalidamos a
-  // existência no banco a cada request para evitar uma consulta extra por
-  // página renderizada. Caso seja necessário revogar acesso antes do TTL,
-  // basta limpar/rotacionar `SESSION_SECRET`.
-  return { email: payload.email, role: "gestor" };
+
+  try {
+    const dbUser = await buscarUsuarioPorEmail(payload.email);
+    if (dbUser && dbUser !== "indisponivel") {
+      return {
+        email: dbUser.email,
+        nome: dbUser.nome,
+        role: dbUser.role,
+        mustChangePassword: dbUser.senhaProvisoria,
+      };
+    }
+    if (dbUser === null) {
+      // usuário existia no momento do login mas foi removido depois → expira sessão.
+      return null;
+    }
+    // dbUser === "indisponivel" → cai no fallback abaixo.
+  } catch (err) {
+    console.warn("[auth] Falha ao buscar usuário; usando fallback.", err);
+  }
+
+  const fallback = findFallbackUserByEmail(payload.email);
+  if (!fallback) return null;
+  return {
+    email: fallback.email,
+    nome: fallback.nome,
+    role: fallback.role,
+    mustChangePassword: false,
+  };
 }
 
 export async function requireSessionUser() {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+  return user;
+}
+
+/**
+ * Como `requireSessionUser`, mas também redireciona para `/` quando o usuário
+ * não tem papel `admin`. Use em páginas/actions de administração (painel de
+ * Acessos, troca de papéis, etc.).
+ */
+export async function requireAdminUser() {
+  const user = await requireSessionUser();
+  if (user.role !== "admin") redirect("/");
   return user;
 }

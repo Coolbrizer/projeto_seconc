@@ -15,6 +15,8 @@ async function logoutAction() {
 
 export default async function ProjecaoPage() {
   const user = await requireSessionUser();
+  if (user.mustChangePassword) redirect("/trocar-senha");
+
   const { payments, enrolledByUf, enrolledUnavailable, dataNotice } =
     await getDashboardData();
 
@@ -22,7 +24,7 @@ export default async function ProjecaoPage() {
     <div className="min-h-screen bg-slate-100 px-4 py-6 md:px-8 md:py-8">
       <header className="mx-auto mb-4 flex w-full max-w-7xl flex-col gap-3 rounded-lg bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-slate-700">
-          Conectado como <strong>{user.email}</strong>
+          Conectado como <strong>{user.nome || user.email}</strong>
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Link
