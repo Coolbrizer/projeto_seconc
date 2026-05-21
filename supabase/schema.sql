@@ -244,11 +244,81 @@ values
   )
 on conflict (email) do nothing;
 
--- Exemplo de validação no app (executado com service_role):
---   select id, nome, email
---   from public.usuarios
---   where lower(email) = lower($1)
---     and senha_hash = crypt($2, senha_hash);
+-- ----------------------------------------------------------------------------
+-- RPCs para o app (chamadas via service_role). Mantêm a senha em texto puro
+-- dentro do Postgres: a string só viaja na chamada e nunca volta como hash.
+-- ----------------------------------------------------------------------------
+
+-- Valida login: retorna a linha do usuário se a senha bate; vazio caso contrário.
+create or replace function public.usuarios_validar_login(
+  p_email text,
+  p_senha text
+)
+returns table (id uuid, nome text, email text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return query
+  select u.id, u.nome, u.email
+  from public.usuarios u
+  where lower(u.email) = lower(p_email)
+    and u.senha_hash = crypt(p_senha, u.senha_hash);
+end;
+$$;
+
+-- Cria um novo usuário com a senha fornecida (já com bcrypt). Lança exceção
+-- se o e-mail já existir (constraint unique).
+create or replace function public.usuarios_criar(
+  p_nome text,
+  p_email text,
+  p_senha text
+)
+returns table (id uuid, nome text, email text)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  return query
+  insert into public.usuarios (nome, email, senha_hash)
+  values (
+    trim(p_nome),
+    lower(trim(p_email)),
+    crypt(p_senha, gen_salt('bf', 10))
+  )
+  returning usuarios.id, usuarios.nome, usuarios.email;
+end;
+$$;
+
+-- Redefine a senha do usuário identificado por e-mail. Retorna `true` se
+-- encontrou o usuário, `false` caso contrário.
+create or replace function public.usuarios_redefinir_senha(
+  p_email text,
+  p_nova_senha text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_count int;
+begin
+  update public.usuarios
+  set senha_hash = crypt(p_nova_senha, gen_salt('bf', 10))
+  where lower(email) = lower(p_email);
+
+  get diagnostics v_count = row_count;
+  return v_count > 0;
+end;
+$$;
+
+-- Acesso às RPCs: apenas service_role (ou postgres) pode chamar.
+revoke all on function public.usuarios_validar_login(text, text) from public, anon, authenticated;
+revoke all on function public.usuarios_criar(text, text, text)     from public, anon, authenticated;
+revoke all on function public.usuarios_redefinir_senha(text, text) from public, anon, authenticated;
 
 -- ============================================================================
 -- GRANTs para tabelas mantidas fora deste arquivo (importadas de planilhas).

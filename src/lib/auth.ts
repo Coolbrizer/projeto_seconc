@@ -4,6 +4,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { validarLogin } from "@/lib/usuarios";
+
 export type AuthUser = {
   email: string;
   role: "gestor";
@@ -14,7 +16,13 @@ type SessionPayload = {
   exp: number;
 };
 
-const AUTH_USERS: Array<AuthUser & { password: string }> = [
+/**
+ * Lista de fallback usada apenas quando a tabela `public.usuarios` não está
+ * disponível (banco sem o schema aplicado, `SUPABASE_SERVICE_ROLE_KEY` ausente,
+ * etc.). Quando a migração estiver completa e os dois usuários abaixo já
+ * existirem na tabela, este array pode ser esvaziado com segurança.
+ */
+const AUTH_USERS_FALLBACK: Array<AuthUser & { password: string }> = [
   {
     email: "alexandredamasceno@mpf.mp.br",
     password: "Rpvl2027@",
@@ -83,15 +91,43 @@ function decodeSessionToken(token: string): SessionPayload | null {
   }
 }
 
-function findUserByEmail(email: string) {
-  return AUTH_USERS.find((user) => user.email.toLowerCase() === email.toLowerCase()) ?? null;
+function findFallbackUserByEmail(email: string) {
+  return (
+    AUTH_USERS_FALLBACK.find(
+      (user) => user.email.toLowerCase() === email.toLowerCase(),
+    ) ?? null
+  );
 }
 
-export function validateCredentials(email: string, password: string): AuthUser | null {
-  const user = findUserByEmail(email.trim());
-  if (!user) return null;
-  if (user.password !== password) return null;
-  return { email: user.email, role: user.role };
+/**
+ * Valida credenciais. Tenta primeiro a tabela `public.usuarios` (via RPC com
+ * bcrypt no Postgres). Se a tabela ainda não está disponível ou a consulta
+ * falha por motivo de infraestrutura, recorre à lista hardcoded de fallback.
+ *
+ * - DB válido → sucesso.
+ * - DB diz "usuário não bate" → ainda tenta o fallback (suporte à transição).
+ * - DB indisponível ou erro → fallback.
+ */
+export async function validateCredentials(
+  email: string,
+  password: string,
+): Promise<AuthUser | null> {
+  const trimmedEmail = email.trim();
+
+  try {
+    const dbResult = await validarLogin(trimmedEmail, password);
+    if (dbResult !== "indisponivel" && dbResult !== null) {
+      return { email: dbResult.email, role: "gestor" };
+    }
+    // dbResult === null (credenciais não batem) ou "indisponivel" → tenta fallback.
+  } catch (err) {
+    console.warn("[auth] Falha ao validar via tabela usuarios; usando fallback.", err);
+  }
+
+  const fallback = findFallbackUserByEmail(trimmedEmail);
+  if (!fallback) return null;
+  if (fallback.password !== password) return null;
+  return { email: fallback.email, role: fallback.role };
 }
 
 export async function createSession(email: string) {
@@ -118,9 +154,11 @@ export async function getSessionUser(): Promise<AuthUser | null> {
   if (!token) return null;
   const payload = decodeSessionToken(token);
   if (!payload) return null;
-  const user = findUserByEmail(payload.email);
-  if (!user) return null;
-  return { email: user.email, role: user.role };
+  // Confiamos no token (assinado por HMAC com TTL de 12h). Não revalidamos a
+  // existência no banco a cada request para evitar uma consulta extra por
+  // página renderizada. Caso seja necessário revogar acesso antes do TTL,
+  // basta limpar/rotacionar `SESSION_SECRET`.
+  return { email: payload.email, role: "gestor" };
 }
 
 export async function requireSessionUser() {

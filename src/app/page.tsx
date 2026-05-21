@@ -1,3 +1,4 @@
+import { AccessModal } from "@/components/access-modal";
 import { PaymentsDashboard } from "@/components/payments-dashboard";
 import { clearSession, requireSessionUser } from "@/lib/auth";
 import { getDashboardData } from "@/lib/payments";
@@ -43,6 +44,7 @@ export default async function Home() {
             <span aria-hidden>📊</span>
             Projeção de Gastos
           </Link>
+          <AccessModal />
           <form action={logoutAction}>
             <button
               type="submit"

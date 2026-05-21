@@ -18,7 +18,7 @@ export async function loginAction(
     return { error: "Informe e-mail e senha." };
   }
 
-  const user = validateCredentials(email, password);
+  const user = await validateCredentials(email, password);
   if (!user) {
     return { error: "Credenciais inválidas." };
   }
