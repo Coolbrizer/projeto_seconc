@@ -226,10 +226,24 @@ create trigger trg_usuarios_set_updated_at
   before update on public.usuarios
   for each row execute function public.usuarios_set_updated_at();
 
--- Exemplo de inserção (substitua nome/email/senha e rode no SQL Editor):
---   insert into public.usuarios (nome, email, senha_hash)
---   values ('Fulano de Tal', 'fulano@mpf.mp.br', crypt('senha-em-texto-puro', gen_salt('bf', 10)));
---
+-- Seed inicial dos gestores. As senhas em texto puro NÃO são armazenadas:
+-- `crypt(..., gen_salt('bf', 10))` produz um hash bcrypt na hora do insert.
+-- O `on conflict (email) do nothing` mantém o arquivo idempotente: reexecutar
+-- não duplica e não sobrescreve senhas já cadastradas (use UPDATE manual para isso).
+insert into public.usuarios (nome, email, senha_hash)
+values
+  (
+    'Alexandre Cezar Damasceno',
+    'alexandredamasceno@mpf.mp.br',
+    crypt('Rpvl2027@', gen_salt('bf', 10))
+  ),
+  (
+    'Marcos Silvestre',
+    'marcossilvestre@mpf.mp.br',
+    crypt('31cprPrincipe', gen_salt('bf', 10))
+  )
+on conflict (email) do nothing;
+
 -- Exemplo de validação no app (executado com service_role):
 --   select id, nome, email
 --   from public.usuarios
