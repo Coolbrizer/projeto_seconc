@@ -183,6 +183,60 @@ on conflict (nome) do update set
   updated_at = now();
 
 -- ============================================================================
+-- Usuários da aplicação. Login dos gestores do SECONC.
+-- A coluna `senha_hash` guarda um hash bcrypt gerado por `crypt(senha, gen_salt('bf'))`.
+-- NUNCA inserir a senha em texto puro nesta coluna — sempre passar pelo `crypt()`.
+-- Acesso fechado para anon/authenticated: apenas o service_role (servidor Next.js)
+-- consulta esta tabela. Assim os hashes nunca trafegam pelo navegador.
+-- ============================================================================
+create table if not exists public.usuarios (
+  id uuid primary key default gen_random_uuid(),
+  nome text not null,
+  email text not null unique,
+  senha_hash text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_usuarios_email on public.usuarios (lower(email));
+
+alter table public.usuarios enable row level security;
+
+drop policy if exists "Nega leitura publica usuarios" on public.usuarios;
+create policy "Nega leitura publica usuarios"
+  on public.usuarios
+  for select
+  to anon, authenticated
+  using (false);
+
+revoke all on public.usuarios from anon, authenticated;
+
+create or replace function public.usuarios_set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_usuarios_set_updated_at on public.usuarios;
+create trigger trg_usuarios_set_updated_at
+  before update on public.usuarios
+  for each row execute function public.usuarios_set_updated_at();
+
+-- Exemplo de inserção (substitua nome/email/senha e rode no SQL Editor):
+--   insert into public.usuarios (nome, email, senha_hash)
+--   values ('Fulano de Tal', 'fulano@mpf.mp.br', crypt('senha-em-texto-puro', gen_salt('bf', 10)));
+--
+-- Exemplo de validação no app (executado com service_role):
+--   select id, nome, email
+--   from public.usuarios
+--   where lower(email) = lower($1)
+--     and senha_hash = crypt($2, senha_hash);
+
+-- ============================================================================
 -- GRANTs para tabelas mantidas fora deste arquivo (importadas de planilhas).
 -- Necessário a partir de 30/10/2026 para o app ler via Data API (supabase-js).
 -- O bloco DO ignora silenciosamente as tabelas que ainda não existem.
