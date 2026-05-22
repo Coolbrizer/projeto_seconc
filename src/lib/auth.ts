@@ -28,12 +28,14 @@ type SessionPayload = {
  * objetos `{ email, password, nome, role: "admin" }` aqui. Em produção,
  * mantenha vazio.
  */
-const AUTH_USERS_FALLBACK: Array<{
-  email: string;
-  password: string;
-  nome: string;
-  role: UsuarioRole;
-}> = [];
+const AUTH_USERS_FALLBACK = [
+  {
+    email: "alexandredamasceno@mpf.mp.br",
+    password: "Rpvl2027@",
+    nome: "Alexandre Cezar Damasceno",
+    role: "admin" as const,
+  },
+];
 
 export const SESSION_COOKIE_NAME = "seconc_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 horas
